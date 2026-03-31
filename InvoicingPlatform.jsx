@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect } from "react";
 
 const STORAGE_KEY = "invoicing_platform_data";
 
@@ -32,7 +32,7 @@ const theme = {
 
 const genId = () => Math.random().toString(36).substr(2, 9);
 const fmt = (n) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(n);
-const fmtDate = (d) => new Date(d).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+const fmtDate = (d) => { const [y, m, day] = String(d).split("T")[0].split("-"); return new Date(Number(y), Number(m) - 1, Number(day)).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }); };
 const today = () => new Date().toISOString().split("T")[0];
 
 const defaultData = {
@@ -114,7 +114,7 @@ function Empty({ icon, message, action }) {
 }
 
 function Toast({ message, type = "success", onClose }) {
-  useEffect(() => { const t = setTimeout(onClose, 4000); return () => clearTimeout(t); }, []);
+  useEffect(() => { const t = setTimeout(onClose, 4000); return () => clearTimeout(t); }, [onClose]);
   const colors = { success: { bg: theme.successLight, color: theme.success, border: "#b8e0ca" }, error: { bg: theme.dangerLight, color: theme.danger, border: "#f5c6c3" }, info: { bg: theme.blueLight, color: theme.blue, border: "#c3d9f5" } };
   const c = colors[type] || colors.success;
   return <div style={{ position: "fixed", top: 20, right: 20, zIndex: 9999, padding: "12px 20px", borderRadius: theme.radiusSm, background: c.bg, color: c.color, border: `1px solid ${c.border}`, fontSize: 13, fontWeight: 500, fontFamily: "'DM Sans', sans-serif", boxShadow: theme.shadowMd, animation: "modalIn 0.2s ease", display: "flex", alignItems: "center", gap: 8, maxWidth: 400 }}>{type === "success" && Icons.check}{message}<button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", color: c.color, marginLeft: 8, padding: 0 }}>{Icons.close}</button></div>;
@@ -270,10 +270,13 @@ async function sendInvoiceEmail({ apiKey, senderEmail, senderName, recipientEmai
   return { success: false, error: err };
 }
 
+function escHtml(s) { return String(s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;"); }
+
 function buildInvoiceEmailHTML(invoice, settings) {
   const remaining = (invoice.total || 0) - (invoice.amountPaid || 0);
-  const rows = (invoice.items || []).map(li => `<tr><td style="padding:10px 14px;border-bottom:1px solid #EDE9E1;font-size:13px;">${li.description || ""}</td><td style="padding:10px 14px;border-bottom:1px solid #EDE9E1;font-size:13px;text-align:center;">${li.qty}</td><td style="padding:10px 14px;border-bottom:1px solid #EDE9E1;font-size:13px;text-align:right;">${fmt(li.rate || 0)}</td><td style="padding:10px 14px;border-bottom:1px solid #EDE9E1;font-size:13px;text-align:right;font-weight:600;">${fmt((li.qty || 0) * (li.rate || 0))}</td></tr>`).join("");
-  return `<div style="font-family:'Helvetica Neue',Arial,sans-serif;max-width:600px;margin:0 auto;background:#fff;"><div style="background:#2D5A3D;padding:24px 28px;border-radius:8px 8px 0 0;"><h1 style="color:#fff;margin:0;font-size:22px;">${settings.companyName || "Invoice"}</h1><p style="color:rgba(255,255,255,0.8);margin:4px 0 0;font-size:13px;">${invoice.number}${invoice.dueDate ? ` &middot; Due ${fmtDate(invoice.dueDate)}` : ""}</p></div><div style="padding:24px 28px;border:1px solid #EDE9E1;border-top:none;border-radius:0 0 8px 8px;"><p style="color:#6B6560;font-size:14px;margin:0 0 20px;">Hi${invoice.clientName ? ` ${invoice.clientName.split(" ")[0]}` : ""},<br><br>Please find your invoice below. A PDF copy is attached for your records.</p><table style="width:100%;border-collapse:collapse;margin-bottom:20px;"><thead><tr style="background:#F0EDE6;"><th style="padding:10px 14px;text-align:left;font-size:11px;text-transform:uppercase;color:#9C9590;font-weight:600;">Item</th><th style="padding:10px 14px;text-align:center;font-size:11px;text-transform:uppercase;color:#9C9590;font-weight:600;">Qty</th><th style="padding:10px 14px;text-align:right;font-size:11px;text-transform:uppercase;color:#9C9590;font-weight:600;">Rate</th><th style="padding:10px 14px;text-align:right;font-size:11px;text-transform:uppercase;color:#9C9590;font-weight:600;">Total</th></tr></thead><tbody>${rows}</tbody></table><div style="text-align:right;padding:14px 0;border-top:2px solid #1A1A1A;"><span style="font-size:20px;font-weight:700;color:#1A1A1A;">Total Due: ${fmt(remaining)}</span></div>${invoice.notes ? `<div style="margin-top:16px;padding:14px;background:#F7F5F0;border-radius:6px;font-size:13px;color:#6B6560;"><strong style="font-size:11px;text-transform:uppercase;letter-spacing:0.05em;">Notes</strong><br>${invoice.notes}</div>` : ""}<p style="color:#9C9590;font-size:12px;margin-top:28px;text-align:center;border-top:1px solid #EDE9E1;padding-top:16px;">Thank you for your business.<br>${settings.senderEmail || ""}</p></div></div>`;
+  const rows = (invoice.items || []).map(li => `<tr><td style="padding:10px 14px;border-bottom:1px solid #EDE9E1;font-size:13px;">${escHtml(li.description)}</td><td style="padding:10px 14px;border-bottom:1px solid #EDE9E1;font-size:13px;text-align:center;">${li.qty}</td><td style="padding:10px 14px;border-bottom:1px solid #EDE9E1;font-size:13px;text-align:right;">${fmt(li.rate || 0)}</td><td style="padding:10px 14px;border-bottom:1px solid #EDE9E1;font-size:13px;text-align:right;font-weight:600;">${fmt((li.qty || 0) * (li.rate || 0))}</td></tr>`).join("");
+  const firstName = escHtml((invoice.clientName || "").split(" ")[0]);
+  return `<div style="font-family:'Helvetica Neue',Arial,sans-serif;max-width:600px;margin:0 auto;background:#fff;"><div style="background:#2D5A3D;padding:24px 28px;border-radius:8px 8px 0 0;"><h1 style="color:#fff;margin:0;font-size:22px;">${escHtml(settings.companyName) || "Invoice"}</h1><p style="color:rgba(255,255,255,0.8);margin:4px 0 0;font-size:13px;">${escHtml(invoice.number)}${invoice.dueDate ? ` &middot; Due ${fmtDate(invoice.dueDate)}` : ""}</p></div><div style="padding:24px 28px;border:1px solid #EDE9E1;border-top:none;border-radius:0 0 8px 8px;"><p style="color:#6B6560;font-size:14px;margin:0 0 20px;">Hi${firstName ? ` ${firstName}` : ""},<br><br>Please find your invoice below. A PDF copy is attached for your records.</p><table style="width:100%;border-collapse:collapse;margin-bottom:20px;"><thead><tr style="background:#F0EDE6;"><th style="padding:10px 14px;text-align:left;font-size:11px;text-transform:uppercase;color:#9C9590;font-weight:600;">Item</th><th style="padding:10px 14px;text-align:center;font-size:11px;text-transform:uppercase;color:#9C9590;font-weight:600;">Qty</th><th style="padding:10px 14px;text-align:right;font-size:11px;text-transform:uppercase;color:#9C9590;font-weight:600;">Rate</th><th style="padding:10px 14px;text-align:right;font-size:11px;text-transform:uppercase;color:#9C9590;font-weight:600;">Total</th></tr></thead><tbody>${rows}</tbody></table><div style="text-align:right;padding:14px 0;border-top:2px solid #1A1A1A;"><span style="font-size:20px;font-weight:700;color:#1A1A1A;">Total Due: ${fmt(remaining)}</span></div>${invoice.notes ? `<div style="margin-top:16px;padding:14px;background:#F7F5F0;border-radius:6px;font-size:13px;color:#6B6560;"><strong style="font-size:11px;text-transform:uppercase;letter-spacing:0.05em;">Notes</strong><br>${escHtml(invoice.notes)}</div>` : ""}<p style="color:#9C9590;font-size:12px;margin-top:28px;text-align:center;border-top:1px solid #EDE9E1;padding-top:16px;">Thank you for your business.<br>${escHtml(settings.senderEmail)}</p></div></div>`;
 }
 
 // ═══════════════════════════════════════
