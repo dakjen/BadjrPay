@@ -2,6 +2,17 @@ import { initDb, listUsers, createUser } from "@/lib/db";
 import bcrypt from "bcryptjs";
 import { NextResponse } from "next/server";
 
+// Returns whether setup is needed (no users yet)
+export async function GET() {
+  try {
+    await initDb();
+    const existing = await listUsers();
+    return NextResponse.json({ needsSetup: existing.length === 0 });
+  } catch (e) {
+    return NextResponse.json({ error: e.message }, { status: 500 });
+  }
+}
+
 // One-time setup: creates the first admin user only if no users exist yet.
 export async function POST(req) {
   try {

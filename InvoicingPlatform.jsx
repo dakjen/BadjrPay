@@ -533,6 +533,7 @@ export default function InvoicingPlatform() {
     { id: "services", label: "Services", icon: Icons.service },
     { id: "categories", label: "Categories", icon: Icons.category },
     { id: "reports", label: "Reports", icon: Icons.report },
+    { id: "users", label: "Users", icon: Icons.user },
     { id: "settings", label: "Settings", icon: Icons.settings },
   ];
 
@@ -645,6 +646,7 @@ export default function InvoicingPlatform() {
         {page === "services" && <ServicesView {...{ data, setModal, setEditItem, deleteService }} />}
         {page === "categories" && <CategoriesView {...{ data, setModal, setEditItem, deleteCategory }} />}
         {page === "reports" && <ReportsView data={data} />}
+        {page === "users" && <UsersView />}
         {page === "settings" && <SettingsView settings={data.settings} onSave={saveSettings} />}
       </main>
 
@@ -1135,6 +1137,71 @@ function ReportsView({ data }) {
 // ═══════════════════════════════════════
 // SETTINGS VIEW
 // ═══════════════════════════════════════
+function UsersView() {
+  const [users, setUsers] = useState([]);
+  const [form, setForm] = useState({ name: "", email: "", password: "" });
+  const [loading, setLoading] = useState(false);
+  const [adding, setAdding] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    fetch("/api/users").then(r => r.json()).then(setUsers).catch(() => {});
+  }, []);
+
+  const addUser = async (e) => {
+    e.preventDefault();
+    setError(""); setLoading(true);
+    const res = await fetch("/api/users", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(form) });
+    const data = await res.json();
+    setLoading(false);
+    if (res.ok) { setUsers(u => [...u, data]); setForm({ name: "", email: "", password: "" }); setAdding(false); }
+    else setError(data.error || "Failed to add user");
+  };
+
+  const removeUser = async (id) => {
+    if (!confirm("Remove this user?")) return;
+    await fetch("/api/users", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id }) });
+    setUsers(u => u.filter(x => x.id !== id));
+  };
+
+  return <div>
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+      <h1 style={{ margin: 0, fontFamily: "'Fraunces', serif", fontSize: 24, fontWeight: 700 }}>Admin Users</h1>
+      <Btn icon={Icons.plus} onClick={() => { setAdding(true); setError(""); }}>Add User</Btn>
+    </div>
+
+    {adding && <div style={{ background: theme.surface, borderRadius: theme.radius, border: `1px solid ${theme.borderLight}`, padding: "20px 24px", marginBottom: 16 }}>
+      <h3 style={{ margin: "0 0 14px", fontFamily: "'Fraunces', serif", fontSize: 16 }}>New Admin User</h3>
+      {error && <div style={{ background: theme.dangerLight, color: theme.danger, padding: "8px 12px", borderRadius: 6, fontSize: 13, marginBottom: 12 }}>{error}</div>}
+      <form onSubmit={addUser} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        <div className="r-g" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+          <Input label="Full Name" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="Jane Smith" />
+          <Input label="Email" type="email" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} placeholder="jane@badjrtech.com" />
+        </div>
+        <Input label="Password" type="password" value={form.password} onChange={e => setForm(f => ({ ...f, password: e.target.value }))} placeholder="At least 8 characters" />
+        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+          <Btn variant="secondary" onClick={() => setAdding(false)}>Cancel</Btn>
+          <Btn disabled={loading}>{loading ? "Adding…" : "Add User"}</Btn>
+        </div>
+      </form>
+    </div>}
+
+    <div style={{ background: theme.surface, borderRadius: theme.radius, border: `1px solid ${theme.borderLight}`, overflow: "hidden" }}>
+      {users.length === 0 ? <Empty icon={Icons.user} message="No users yet" /> :
+        users.map((u, i) => <div key={u.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 20px", borderBottom: i < users.length - 1 ? `1px solid ${theme.borderLight}` : "none" }}>
+          <div>
+            <div style={{ fontWeight: 600, fontSize: 14 }}>{u.name}</div>
+            <div style={{ fontSize: 12, color: theme.textSecondary }}>{u.email}</div>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 10, background: theme.accentLight, color: theme.accent, fontWeight: 600 }}>{u.role}</span>
+            {users.length > 1 && <Btn size="sm" variant="ghost" icon={Icons.trash} onClick={() => removeUser(u.id)} style={{ color: theme.danger }} />}
+          </div>
+        </div>)}
+    </div>
+  </div>;
+}
+
 function SettingsView({ settings, onSave }) {
   const [form, setForm] = useState({ ...settings });
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
