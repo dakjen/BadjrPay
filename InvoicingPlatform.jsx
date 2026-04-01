@@ -251,11 +251,11 @@ async function generateInvoicePDF(invoice, settings, client) {
 // ═══════════════════════════════════════
 // SENDGRID EMAIL
 // ═══════════════════════════════════════
-async function sendInvoiceEmail({ apiKey, senderEmail, senderName, recipientEmail, recipientName, subject, htmlBody, pdfBase64, filename }) {
+async function sendInvoiceEmail({ apiKey, senderEmail, senderName, recipientEmail, recipientName, subject, htmlBody, pdfBase64, filename, templateId, templateData }) {
   const payload = {
-    personalizations: [{ to: [{ email: recipientEmail, name: recipientName || "" }], subject }],
+    personalizations: [{ to: [{ email: recipientEmail, name: recipientName || "" }], ...(templateId ? { dynamic_template_data: templateData || {} } : { subject }) }],
     from: { email: senderEmail, name: senderName || senderEmail },
-    content: [{ type: "text/html", value: htmlBody }],
+    ...(templateId ? { template_id: templateId } : { subject, content: [{ type: "text/html", value: htmlBody }] }),
   };
   if (pdfBase64) {
     payload.attachments = [{ content: pdfBase64, filename: filename || "invoice.pdf", type: "application/pdf", disposition: "attachment" }];
@@ -270,13 +270,212 @@ async function sendInvoiceEmail({ apiKey, senderEmail, senderName, recipientEmai
   return { success: false, error: err };
 }
 
+const SENDGRID_TEMPLATES = {
+  newInvoice: "d-7658bab4c4754dcc9e0911abd0c00292",
+  invoiceSubmitted: "d-f4e6842af6984995b750f2ec1080e96b",
+  overdue: "d-9c92a70047764baca712e91799b46761",
+};
+
 function escHtml(s) { return String(s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;"); }
 
 function buildInvoiceEmailHTML(invoice, settings) {
   const remaining = (invoice.total || 0) - (invoice.amountPaid || 0);
-  const rows = (invoice.items || []).map(li => `<tr><td style="padding:10px 14px;border-bottom:1px solid #EDE9E1;font-size:13px;">${escHtml(li.description)}</td><td style="padding:10px 14px;border-bottom:1px solid #EDE9E1;font-size:13px;text-align:center;">${li.qty}</td><td style="padding:10px 14px;border-bottom:1px solid #EDE9E1;font-size:13px;text-align:right;">${fmt(li.rate || 0)}</td><td style="padding:10px 14px;border-bottom:1px solid #EDE9E1;font-size:13px;text-align:right;font-weight:600;">${fmt((li.qty || 0) * (li.rate || 0))}</td></tr>`).join("");
-  const firstName = escHtml((invoice.clientName || "").split(" ")[0]);
-  return `<div style="font-family:'Helvetica Neue',Arial,sans-serif;max-width:600px;margin:0 auto;background:#fff;"><div style="background:#2D5A3D;padding:24px 28px;border-radius:8px 8px 0 0;"><h1 style="color:#fff;margin:0;font-size:22px;">${escHtml(settings.companyName) || "Invoice"}</h1><p style="color:rgba(255,255,255,0.8);margin:4px 0 0;font-size:13px;">${escHtml(invoice.number)}${invoice.dueDate ? ` &middot; Due ${fmtDate(invoice.dueDate)}` : ""}</p></div><div style="padding:24px 28px;border:1px solid #EDE9E1;border-top:none;border-radius:0 0 8px 8px;"><p style="color:#6B6560;font-size:14px;margin:0 0 20px;">Hi${firstName ? ` ${firstName}` : ""},<br><br>Please find your invoice below. A PDF copy is attached for your records.</p><table style="width:100%;border-collapse:collapse;margin-bottom:20px;"><thead><tr style="background:#F0EDE6;"><th style="padding:10px 14px;text-align:left;font-size:11px;text-transform:uppercase;color:#9C9590;font-weight:600;">Item</th><th style="padding:10px 14px;text-align:center;font-size:11px;text-transform:uppercase;color:#9C9590;font-weight:600;">Qty</th><th style="padding:10px 14px;text-align:right;font-size:11px;text-transform:uppercase;color:#9C9590;font-weight:600;">Rate</th><th style="padding:10px 14px;text-align:right;font-size:11px;text-transform:uppercase;color:#9C9590;font-weight:600;">Total</th></tr></thead><tbody>${rows}</tbody></table><div style="text-align:right;padding:14px 0;border-top:2px solid #1A1A1A;"><span style="font-size:20px;font-weight:700;color:#1A1A1A;">Total Due: ${fmt(remaining)}</span></div>${invoice.notes ? `<div style="margin-top:16px;padding:14px;background:#F7F5F0;border-radius:6px;font-size:13px;color:#6B6560;"><strong style="font-size:11px;text-transform:uppercase;letter-spacing:0.05em;">Notes</strong><br>${escHtml(invoice.notes)}</div>` : ""}<p style="color:#9C9590;font-size:12px;margin-top:28px;text-align:center;border-top:1px solid #EDE9E1;padding-top:16px;">Thank you for your business.<br>${escHtml(settings.senderEmail)}</p></div></div>`;
+  const amount = fmt(remaining).replace("$", "");
+  const clientName = escHtml(invoice.clientName || "");
+  const senderName = escHtml(settings.senderName || settings.companyName || "");
+  const invoiceNumber = escHtml(invoice.number || "");
+  const dueDate = invoice.dueDate ? fmtDate(invoice.dueDate) : "—";
+  return `<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>You Have a New Invoice</title></head>
+<body style="margin:0;padding:0;background-color:#fffcf0;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;">
+<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background-color:#fffcf0;">
+  <tr>
+    <td align="center" style="padding:40px 16px;">
+      <table role="presentation" width="600" cellspacing="0" cellpadding="0" border="0" style="max-width:600px;width:100%;background-color:#ffffff;border-radius:12px;overflow:hidden;border:1px solid #f0dda0;">
+        <tr>
+          <td style="background-color:#ffbd5a;padding:24px 32px;">
+            <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
+              <tr>
+                <td><img src="http://cdn.mcauto-images-production.sendgrid.net/f8d2c7355b303d55/82641b9b-83c5-474f-8b4e-886864a4caff/1000x509.png" alt="BaDjR" width="200" height="100" style="display:block;border:0;border-radius:8px;" /></td>
+                <td align="right"><span style="font-size:11px;font-weight:600;color:#0b2d65;background-color:rgba(11,45,101,0.12);padding:4px 12px;border-radius:20px;letter-spacing:0.08em;text-transform:uppercase;">New Invoice</span></td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+        <tr>
+          <td style="padding:32px 32px 24px;">
+            <p style="margin:0 0 8px;font-size:15px;color:#363636;line-height:1.6;">Hi <strong>${clientName}</strong>,</p>
+            <p style="margin:0 0 24px;font-size:15px;color:#363636;line-height:1.6;">You've received a new invoice from <strong>${senderName}</strong>. Please review the details below:</p>
+            <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="border-top:1px solid #e9e9e9;margin-bottom:16px;"><tr><td></td></tr></table>
+            <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
+              <tr><td style="font-size:13px;color:#888888;padding:8px 0;border-bottom:1px solid #f2f2f2;">Invoice #</td><td align="right" style="font-size:13px;color:#363636;font-weight:500;padding:8px 0;border-bottom:1px solid #f2f2f2;">${invoiceNumber}</td></tr>
+              <tr><td style="font-size:13px;color:#888888;padding:8px 0;border-bottom:1px solid #f2f2f2;">From</td><td align="right" style="font-size:13px;color:#363636;font-weight:500;padding:8px 0;border-bottom:1px solid #f2f2f2;">${senderName}</td></tr>
+              <tr><td style="font-size:13px;color:#888888;padding:8px 0;border-bottom:1px solid #f2f2f2;">Amount Due</td><td align="right" style="font-size:13px;color:#363636;font-weight:500;padding:8px 0;border-bottom:1px solid #f2f2f2;">$${amount}</td></tr>
+              <tr><td style="font-size:13px;color:#888888;padding:8px 0;">Due Date</td><td align="right" style="font-size:13px;color:#363636;font-weight:500;padding:8px 0;">${dueDate}</td></tr>
+            </table>
+            <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="border-top:1px solid #e9e9e9;margin:24px 0;"><tr><td></td></tr></table>
+            <p style="margin:0 0 24px;font-size:15px;color:#363636;line-height:1.6;">A PDF copy of your invoice is attached for your records. If you have any questions, please reach out to ${senderName} directly.</p>
+          </td>
+        </tr>
+        <tr>
+          <td style="background-color:#fffcf0;border-top:1px solid #e9e9e9;padding:16px 32px;">
+            <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
+              <tr>
+                <td style="font-size:13px;color:#476c2e;font-weight:600;">BaDjR Invoicing Platform</td>
+                <td align="right" style="font-size:11px;color:#888888;">badjrtech.com</td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+      </table>
+    </td>
+  </tr>
+</table>
+</body>
+</html>`;
+}
+
+function buildOverdueEmailHTML(invoice, settings) {
+  const remaining = (invoice.total || 0) - (invoice.amountPaid || 0);
+  const amount = fmt(remaining).replace("$", "");
+  const clientName = escHtml(invoice.clientName || "");
+  const senderName = escHtml(settings.senderName || settings.companyName || "");
+  const invoiceNumber = escHtml(invoice.number || "");
+  const dueDate = invoice.dueDate ? fmtDate(invoice.dueDate) : "—";
+  const daysOverdue = invoice.dueDate
+    ? Math.max(0, Math.floor((Date.now() - new Date(invoice.dueDate).getTime()) / 86400000))
+    : 0;
+  return `<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Invoice Overdue — Action Required</title></head>
+<body style="margin:0;padding:0;background-color:#fffcf0;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;">
+<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background-color:#fffcf0;">
+  <tr>
+    <td align="center" style="padding:40px 16px;">
+      <table role="presentation" width="600" cellspacing="0" cellpadding="0" border="0" style="max-width:600px;width:100%;background-color:#ffffff;border-radius:12px;overflow:hidden;border:1px solid #c5cfe0;">
+        <tr>
+          <td style="background-color:#0b2d65;padding:24px 32px;">
+            <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
+              <tr>
+                <td><img src="http://cdn.mcauto-images-production.sendgrid.net/f8d2c7355b303d55/71ea8845-3525-4139-9694-41c5c14433f9/1021x595.png" alt="BaDjR" width="200" height="100" style="display:block;border:0;border-radius:8px;" /></td>
+                <td align="right"><span style="font-size:11px;font-weight:600;color:#ffffff;background-color:rgba(255,255,255,0.2);padding:4px 12px;border-radius:20px;letter-spacing:0.08em;text-transform:uppercase;">Overdue</span></td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+        <tr>
+          <td style="padding:32px 32px 24px;">
+            <p style="margin:0 0 8px;font-size:15px;color:#363636;line-height:1.6;">Hi <strong>${clientName}</strong>,</p>
+            <p style="margin:0 0 24px;font-size:15px;color:#363636;line-height:1.6;">This is a notice that your invoice from <strong>${senderName}</strong> is now <strong>${daysOverdue} days past due</strong>. Please arrange payment at your earliest convenience.</p>
+            <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin-bottom:24px;">
+              <tr><td style="background-color:#fff0f0;border-left:3px solid #e05555;border-radius:0 6px 6px 0;padding:12px 16px;font-size:13px;color:#7a1f1f;">Invoice #${invoiceNumber} — $${amount} was due on ${dueDate} (${daysOverdue} days ago)</td></tr>
+            </table>
+            <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="border-top:1px solid #e9e9e9;margin-bottom:16px;"><tr><td></td></tr></table>
+            <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
+              <tr><td style="font-size:13px;color:#888888;padding:8px 0;border-bottom:1px solid #f2f2f2;">Invoice #</td><td align="right" style="font-size:13px;color:#363636;font-weight:500;padding:8px 0;border-bottom:1px solid #f2f2f2;">${invoiceNumber}</td></tr>
+              <tr><td style="font-size:13px;color:#888888;padding:8px 0;border-bottom:1px solid #f2f2f2;">From</td><td align="right" style="font-size:13px;color:#363636;font-weight:500;padding:8px 0;border-bottom:1px solid #f2f2f2;">${senderName}</td></tr>
+              <tr><td style="font-size:13px;color:#888888;padding:8px 0;border-bottom:1px solid #f2f2f2;">Amount Due</td><td align="right" style="font-size:13px;color:#363636;font-weight:500;padding:8px 0;border-bottom:1px solid #f2f2f2;">$${amount}</td></tr>
+              <tr><td style="font-size:13px;color:#888888;padding:8px 0;border-bottom:1px solid #f2f2f2;">Original Due Date</td><td align="right" style="font-size:13px;color:#363636;font-weight:500;padding:8px 0;border-bottom:1px solid #f2f2f2;">${dueDate}</td></tr>
+              <tr><td style="font-size:13px;color:#888888;padding:8px 0;">Days Overdue</td><td align="right" style="font-size:13px;color:#e05555;font-weight:600;padding:8px 0;">${daysOverdue} days</td></tr>
+            </table>
+            <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="border-top:1px solid #e9e9e9;margin:24px 0;"><tr><td></td></tr></table>
+            <p style="margin:0 0 24px;font-size:13px;color:#888888;line-height:1.6;">If you've already submitted payment, please disregard this message. Otherwise, please pay as soon as possible to avoid any further delays.</p>
+            <p style="margin:20px 0 0;font-size:13px;color:#888888;line-height:1.6;">Questions? Contact ${senderName} directly.</p>
+          </td>
+        </tr>
+        <tr>
+          <td style="background-color:#fffcf0;border-top:1px solid #e9e9e9;padding:16px 32px;">
+            <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
+              <tr>
+                <td style="font-size:13px;color:#476c2e;font-weight:600;">BaDjR Invoicing Platform</td>
+                <td align="right" style="font-size:11px;color:#888888;">badjrtech.com</td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+      </table>
+    </td>
+  </tr>
+</table>
+</body>
+</html>`;
+}
+
+function buildSenderConfirmationHTML(invoice, settings) {
+  const remaining = (invoice.total || 0) - (invoice.amountPaid || 0);
+  const sentDate = fmtDate(today());
+  const dueDate = invoice.dueDate ? fmtDate(invoice.dueDate) : "—";
+  const senderName = escHtml(settings.senderName || settings.companyName || "there");
+  const invoiceNumber = escHtml(invoice.number || "");
+  const clientName = escHtml(invoice.clientName || "—");
+  const amount = fmt(remaining).replace("$", "");
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Invoice Submitted Successfully</title></head>
+<body style="margin:0;padding:0;background-color:#fffcf0;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;">
+<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background-color:#fffcf0;">
+  <tr>
+    <td align="center" style="padding:40px 16px;">
+      <table role="presentation" width="600" cellspacing="0" cellpadding="0" border="0" style="max-width:600px;width:100%;background-color:#ffffff;border-radius:12px;overflow:hidden;border:1px solid #d0dcc6;">
+        <tr>
+          <td style="background-color:#476c2e;padding:24px 32px;">
+            <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
+              <tr>
+                <td style="font-family:Georgia,'Times New Roman',serif;font-size:22px;font-weight:700;color:#ffffff;letter-spacing:2px;">BADJR</td>
+                <td align="right"><span style="font-size:11px;font-weight:600;color:#ffffff;background-color:rgba(255,255,255,0.2);padding:4px 12px;border-radius:20px;letter-spacing:0.08em;text-transform:uppercase;">Invoicing Platform</span></td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+        <tr>
+          <td style="padding:32px 32px 24px;">
+            <p style="margin:0 0 8px;font-size:15px;color:#363636;line-height:1.6;">Hi <strong>${senderName}</strong>,</p>
+            <p style="margin:0 0 24px;font-size:15px;color:#363636;line-height:1.6;">Your invoice has been submitted successfully. Here's a summary of what was sent:</p>
+            <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="border-top:1px solid #e9e9e9;margin-bottom:16px;"><tr><td></td></tr></table>
+            <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
+              <tr>
+                <td style="font-size:13px;color:#888888;padding:8px 0;border-bottom:1px solid #f2f2f2;">Invoice #</td>
+                <td align="right" style="font-size:13px;color:#363636;font-weight:500;padding:8px 0;border-bottom:1px solid #f2f2f2;">${invoiceNumber}</td>
+              </tr>
+              <tr>
+                <td style="font-size:13px;color:#888888;padding:8px 0;border-bottom:1px solid #f2f2f2;">Client</td>
+                <td align="right" style="font-size:13px;color:#363636;font-weight:500;padding:8px 0;border-bottom:1px solid #f2f2f2;">${clientName}</td>
+              </tr>
+              <tr>
+                <td style="font-size:13px;color:#888888;padding:8px 0;border-bottom:1px solid #f2f2f2;">Amount Due</td>
+                <td align="right" style="font-size:13px;color:#363636;font-weight:500;padding:8px 0;border-bottom:1px solid #f2f2f2;">$${amount}</td>
+              </tr>
+              <tr>
+                <td style="font-size:13px;color:#888888;padding:8px 0;border-bottom:1px solid #f2f2f2;">Date Sent</td>
+                <td align="right" style="font-size:13px;color:#363636;font-weight:500;padding:8px 0;border-bottom:1px solid #f2f2f2;">${sentDate}</td>
+              </tr>
+              <tr>
+                <td style="font-size:13px;color:#888888;padding:8px 0;">Due Date</td>
+                <td align="right" style="font-size:13px;color:#363636;font-weight:500;padding:8px 0;">${dueDate}</td>
+              </tr>
+            </table>
+            <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="border-top:1px solid #e9e9e9;margin:24px 0;"><tr><td></td></tr></table>
+            <p style="margin:0 0 24px;font-size:15px;color:#363636;line-height:1.6;">You'll receive another notification once the client views or pays the invoice. Track its status anytime from your dashboard.</p>
+          </td>
+        </tr>
+        <tr>
+          <td style="background-color:#fffcf0;border-top:1px solid #e9e9e9;padding:16px 32px;">
+            <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
+              <tr>
+                <td style="font-family:Georgia,'Times New Roman',serif;font-size:14px;color:#476c2e;font-weight:700;letter-spacing:1px;">BaDjR Tech</td>
+                <td align="right" style="font-size:11px;color:#888888;">badjrtech.com</td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+      </table>
+    </td>
+  </tr>
+</table>
+</body>
+</html>`;
 }
 
 // ═══════════════════════════════════════
@@ -372,17 +571,48 @@ export default function InvoicingPlatform() {
     if (!client?.email) { showToast("This client has no email address. Add one in Clients.", "error"); return; }
     if (!data.settings.senderEmail) { showToast("Set your sender email in Settings first", "error"); setPage("settings"); return; }
     try {
+      const remaining = (inv.total || 0) - (inv.amountPaid || 0);
       const { pdfBase64, filename } = await generateInvoicePDF(inv, data.settings, client);
-      const htmlBody = buildInvoiceEmailHTML(inv, data.settings);
+      const senderName = data.settings.senderName || data.settings.companyName;
+      // Send invoice to client using Dynamic Template
       const result = await sendInvoiceEmail({
-        apiKey: data.settings.sendgridApiKey, senderEmail: data.settings.senderEmail,
-        senderName: data.settings.senderName || data.settings.companyName,
+        apiKey: data.settings.sendgridApiKey, senderEmail: data.settings.senderEmail, senderName,
         recipientEmail: client.email, recipientName: client.name,
-        subject: `Invoice ${inv.number} from ${data.settings.companyName || "Badjr-Pay"}`,
-        htmlBody, pdfBase64, filename,
+        templateId: SENDGRID_TEMPLATES.newInvoice,
+        templateData: { client_name: inv.clientName || "", sender_name: senderName, invoice_number: inv.number, invoice_amount: remaining.toFixed(2), due_date: inv.dueDate ? fmtDate(inv.dueDate) : "—", invoice_link: "" },
+        pdfBase64, filename,
       });
-      if (result.success) { updateInvoiceStatus(inv.id, "sent"); showToast(`Invoice emailed to ${client.email}`); }
-      else showToast(`Email failed — check your SendGrid config`, "error");
+      if (result.success) {
+        updateInvoiceStatus(inv.id, "sent");
+        showToast(`Invoice emailed to ${client.email}`);
+        // Sender confirmation via Dynamic Template (fire-and-forget)
+        sendInvoiceEmail({
+          apiKey: data.settings.sendgridApiKey, senderEmail: data.settings.senderEmail, senderName,
+          recipientEmail: data.settings.senderEmail, recipientName: senderName,
+          templateId: SENDGRID_TEMPLATES.invoiceSubmitted,
+          templateData: { sender_name: senderName, invoice_number: inv.number, client_name: inv.clientName || "", invoice_amount: remaining.toFixed(2), sent_date: fmtDate(today()), due_date: inv.dueDate ? fmtDate(inv.dueDate) : "—", invoice_link: "" },
+        }).catch(() => {});
+      } else showToast(`Email failed — check your SendGrid config`, "error");
+    } catch (e) { showToast(`Email error: ${e.message}`, "error"); }
+  };
+
+  const handleSendOverdue = async (inv) => {
+    const client = data.clients.find(c => c.id === inv.clientId);
+    if (!data.settings.sendgridApiKey) { showToast("Add your SendGrid API key in Settings first", "error"); setPage("settings"); return; }
+    if (!client?.email) { showToast("This client has no email address. Add one in Clients.", "error"); return; }
+    if (!data.settings.senderEmail) { showToast("Set your sender email in Settings first", "error"); setPage("settings"); return; }
+    try {
+      const remaining = (inv.total || 0) - (inv.amountPaid || 0);
+      const senderName = data.settings.senderName || data.settings.companyName;
+      const daysOverdue = inv.dueDate ? Math.max(0, Math.floor((Date.now() - new Date(inv.dueDate).getTime()) / 86400000)) : 0;
+      const result = await sendInvoiceEmail({
+        apiKey: data.settings.sendgridApiKey, senderEmail: data.settings.senderEmail, senderName,
+        recipientEmail: client.email, recipientName: client.name,
+        templateId: SENDGRID_TEMPLATES.overdue,
+        templateData: { client_name: inv.clientName || "", sender_name: senderName, invoice_number: inv.number, invoice_amount: remaining.toFixed(2), due_date: inv.dueDate ? fmtDate(inv.dueDate) : "—", days_overdue: String(daysOverdue), invoice_link: "" },
+      });
+      if (result.success) showToast(`Overdue reminder sent to ${client.email}`);
+      else showToast(`Reminder failed — check your SendGrid config`, "error");
     } catch (e) { showToast(`Email error: ${e.message}`, "error"); }
   };
 
@@ -408,8 +638,8 @@ export default function InvoicingPlatform() {
       {/* Content */}
       <main style={{ flex: 1, padding: "24px 28px", maxWidth: 960, overflowY: "auto" }}>
         {page === "dashboard" && <DashboardView {...{ data, totalRevenue, outstanding, overdueCount, draftCount, setPage, setModal, updateInvoiceStatus, handleDownloadPDF, handleSendEmail }} />}
-        {page === "invoices" && !viewInvoice && <InvoicesView {...{ data, setModal, setEditItem, setViewInvoice, deleteInvoice, updateInvoiceStatus, handleDownloadPDF, handleSendEmail }} />}
-        {page === "invoices" && viewInvoice && <InvoiceDetailView invoice={data.invoices.find(i => i.id === viewInvoice.id) || viewInvoice} data={data} onBack={() => setViewInvoice(null)} updateStatus={updateInvoiceStatus} markPartial={markPartialPayment} handleDownloadPDF={handleDownloadPDF} handleSendEmail={handleSendEmail} />}
+        {page === "invoices" && !viewInvoice && <InvoicesView {...{ data, setModal, setEditItem, setViewInvoice, deleteInvoice, updateInvoiceStatus, handleDownloadPDF, handleSendEmail, handleSendOverdue }} />}
+        {page === "invoices" && viewInvoice && <InvoiceDetailView invoice={data.invoices.find(i => i.id === viewInvoice.id) || viewInvoice} data={data} onBack={() => setViewInvoice(null)} updateStatus={updateInvoiceStatus} markPartial={markPartialPayment} handleDownloadPDF={handleDownloadPDF} handleSendEmail={handleSendEmail} handleSendOverdue={handleSendOverdue} />}
         {page === "projects" && <ProjectsView {...{ data, setModal, setEditItem, deleteProject, saveProject }} />}
         {page === "services" && <ServicesView {...{ data, setModal, setEditItem, deleteService }} />}
         {page === "categories" && <CategoriesView {...{ data, setModal, setEditItem, deleteCategory }} />}
@@ -472,7 +702,7 @@ function DashboardView({ data, totalRevenue, outstanding, overdueCount, draftCou
   </div>;
 }
 
-function InvoicesView({ data, setModal, setEditItem, setViewInvoice, deleteInvoice, updateInvoiceStatus, handleDownloadPDF, handleSendEmail }) {
+function InvoicesView({ data, setModal, setEditItem, setViewInvoice, deleteInvoice, updateInvoiceStatus, handleDownloadPDF, handleSendEmail, handleSendOverdue }) {
   const [filter, setFilter] = useState("all");
   const filtered = data.invoices.filter(i => filter === "all" || i.status === filter).sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
   const tabs = [{ id: "all", label: "All" }, { id: "draft", label: "Draft" }, { id: "sent", label: "Sent" }, { id: "paid", label: "Paid" }, { id: "overdue", label: "Overdue" }];
@@ -501,6 +731,7 @@ function InvoicesView({ data, setModal, setEditItem, setViewInvoice, deleteInvoi
                 <Btn size="sm" variant="blue" icon={Icons.mail} onClick={() => handleSendEmail(inv)} title="Email" />
                 {inv.status === "draft" && <Btn size="sm" variant="secondary" icon={Icons.send} onClick={() => updateInvoiceStatus(inv.id, "sent")} />}
                 {["sent", "viewed", "partial"].includes(inv.status) && <Btn size="sm" variant="success" icon={Icons.check} onClick={() => updateInvoiceStatus(inv.id, "paid")} />}
+                {inv.status === "overdue" && <Btn size="sm" variant="danger" icon={Icons.mail} onClick={() => handleSendOverdue(inv)} title="Send overdue reminder" />}
                 <Btn size="sm" variant="ghost" icon={Icons.edit} onClick={() => { setEditItem(inv); setModal("invoice"); }} />
                 <Btn size="sm" variant="ghost" icon={Icons.trash} onClick={() => { if (confirm("Delete?")) deleteInvoice(inv.id); }} style={{ color: theme.danger }} />
               </div>
@@ -511,13 +742,15 @@ function InvoicesView({ data, setModal, setEditItem, setViewInvoice, deleteInvoi
   </div>;
 }
 
-function InvoiceDetailView({ invoice: inv, data, onBack, updateStatus, markPartial, handleDownloadPDF, handleSendEmail }) {
+function InvoiceDetailView({ invoice: inv, data, onBack, updateStatus, markPartial, handleDownloadPDF, handleSendEmail, handleSendOverdue }) {
   const [payAmount, setPayAmount] = useState("");
   const [sending, setSending] = useState(false);
+  const [sendingReminder, setSendingReminder] = useState(false);
   const remaining = (inv.total || 0) - (inv.amountPaid || 0);
   const client = data.clients.find(c => c.id === inv.clientId);
   const project = data.projects.find(p => p.id === inv.projectId);
   const onSend = async () => { setSending(true); await handleSendEmail(inv); setSending(false); };
+  const onSendReminder = async () => { setSendingReminder(true); await handleSendOverdue(inv); setSendingReminder(false); };
 
   return <div>
     <button onClick={onBack} style={{ display: "flex", alignItems: "center", gap: 6, background: "none", border: "none", cursor: "pointer", color: theme.textSecondary, fontSize: 13, marginBottom: 16, fontFamily: "'DM Sans', sans-serif" }}>{Icons.back} Back to Invoices</button>
@@ -525,6 +758,7 @@ function InvoiceDetailView({ invoice: inv, data, onBack, updateStatus, markParti
     <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
       <Btn variant="secondary" icon={Icons.download} onClick={() => handleDownloadPDF(inv)}>Download PDF</Btn>
       <Btn variant="blue" icon={sending ? <span className="spin" style={{ display: "inline-flex" }}>{Icons.spinner}</span> : Icons.mail} onClick={onSend} disabled={sending}>{sending ? "Sending..." : "Email to Client"}</Btn>
+      {inv.status === "overdue" && <Btn variant="danger" icon={sendingReminder ? <span className="spin" style={{ display: "inline-flex" }}>{Icons.spinner}</span> : Icons.mail} onClick={onSendReminder} disabled={sendingReminder}>{sendingReminder ? "Sending..." : "Send Overdue Reminder"}</Btn>}
       {inv.status === "draft" && <Btn icon={Icons.send} onClick={() => updateStatus(inv.id, "sent")}>Mark as Sent</Btn>}
       {inv.status !== "paid" && <Btn variant="success" icon={Icons.check} onClick={() => updateStatus(inv.id, "paid")}>Mark Fully Paid</Btn>}
     </div>
