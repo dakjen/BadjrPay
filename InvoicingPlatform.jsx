@@ -47,11 +47,8 @@ const fmtDate = (d) => { const [y, m, day] = String(d).split("T")[0].split("-");
 const today = () => new Date().toISOString().split("T")[0];
 
 const defaultData = {
-  categories: [
-    { id: genId(), name: "Design", color: "#2D5A3D" },
-    { id: genId(), name: "Development", color: "#2B5EA7" },
-    { id: genId(), name: "Consulting", color: "#C4841D" },
-  ],
+  clients: [],
+  categories: [],
   services: [], projects: [], invoices: [],
   settings: { companyName: "", companyAddress: "", companyPhone: "" },
 };
@@ -514,7 +511,9 @@ export default function InvoicingPlatform() {
   const persistData = (newData) => {
     if (saveTimer.current) clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(() => {
-      fetch("/api/data", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(newData) }).catch(() => {});
+      fetch("/api/data", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(newData) })
+        .then(r => { if (!r.ok) showToast("Changes couldn't be saved — check your database connection", "error"); })
+        .catch(() => showToast("Changes couldn't be saved — check your database connection", "error"));
     }, 800);
   };
 
@@ -529,6 +528,7 @@ export default function InvoicingPlatform() {
   const navItems = [
     { id: "dashboard", label: "Dashboard", icon: Icons.dashboard },
     { id: "invoices", label: "Invoices", icon: Icons.invoice },
+    { id: "clients", label: "Clients", icon: Icons.user },
     { id: "projects", label: "Projects", icon: Icons.project },
     { id: "services", label: "Services", icon: Icons.service },
     { id: "categories", label: "Categories", icon: Icons.category },
@@ -538,6 +538,8 @@ export default function InvoicingPlatform() {
   ];
 
   // CRUD
+  const saveClient = (cl) => { if (cl.id) update("clients", data.clients.map(c => c.id === cl.id ? cl : c)); else update("clients", [...data.clients, { ...cl, id: genId() }]); setModal(null); setEditItem(null); };
+  const deleteClient = (id) => update("clients", data.clients.filter(c => c.id !== id));
   const saveCategory = (cat) => { if (cat.id) update("categories", data.categories.map(c => c.id === cat.id ? cat : c)); else update("categories", [...data.categories, { ...cat, id: genId() }]); setModal(null); setEditItem(null); };
   const deleteCategory = (id) => update("categories", data.categories.filter(c => c.id !== id));
   const saveService = (svc) => { if (svc.id) update("services", data.services.map(s => s.id === svc.id ? svc : s)); else update("services", [...data.services, { ...svc, id: genId() }]); setModal(null); setEditItem(null); };
@@ -578,41 +580,33 @@ export default function InvoicingPlatform() {
   const handleSendEmail = async (inv) => {
     if (!inv.clientEmail) { showToast("This invoice has no client email. Edit the invoice to add one.", "error"); return; }
     try {
-      const remaining = (inv.total || 0) - (inv.amountPaid || 0);
       const client = { email: inv.clientEmail, phone: inv.clientPhone, address: inv.clientAddress };
       const { pdfBase64, filename } = await generateInvoicePDF(inv, data.settings, client);
       const senderName = data.settings.companyName || "BaDjR Tech";
       const result = await sendEmail({
         recipientEmail: inv.clientEmail, recipientName: inv.clientName,
-        templateId: SENDGRID_TEMPLATES.newInvoice,
-        templateData: { client_name: inv.clientName || "", sender_name: senderName, invoice_number: inv.number, invoice_amount: remaining.toFixed(2), due_date: inv.dueDate ? fmtDate(inv.dueDate) : "—", invoice_link: "" },
+        subject: `Invoice #${inv.number} from ${senderName}`,
+        htmlBody: buildInvoiceEmailHTML(inv, data.settings),
         pdfBase64, filename,
       });
       if (result.success) {
         updateInvoiceStatus(inv.id, "sent");
         showToast(`Invoice emailed to ${inv.clientEmail}`);
-        sendEmail({
-          recipientEmail: inv.clientEmail, recipientName: inv.clientName,
-          templateId: SENDGRID_TEMPLATES.invoiceSubmitted,
-          templateData: { sender_name: senderName, invoice_number: inv.number, client_name: inv.clientName || "", invoice_amount: remaining.toFixed(2), sent_date: fmtDate(today()), due_date: inv.dueDate ? fmtDate(inv.dueDate) : "—", invoice_link: "" },
-        }).catch(() => {});
-      } else showToast("Email failed — check your SENDER_EMAIL env var", "error");
+      } else showToast(`Email failed: ${result.error || "check SENDER_EMAIL env var"}`, "error");
     } catch (e) { showToast(`Email error: ${e.message}`, "error"); }
   };
 
   const handleSendOverdue = async (inv) => {
     if (!inv.clientEmail) { showToast("This invoice has no client email. Edit the invoice to add one.", "error"); return; }
     try {
-      const remaining = (inv.total || 0) - (inv.amountPaid || 0);
       const senderName = data.settings.companyName || "BaDjR Tech";
-      const daysOverdue = inv.dueDate ? Math.max(0, Math.floor((Date.now() - new Date(inv.dueDate).getTime()) / 86400000)) : 0;
       const result = await sendEmail({
         recipientEmail: inv.clientEmail, recipientName: inv.clientName,
-        templateId: SENDGRID_TEMPLATES.overdue,
-        templateData: { client_name: inv.clientName || "", sender_name: senderName, invoice_number: inv.number, invoice_amount: remaining.toFixed(2), due_date: inv.dueDate ? fmtDate(inv.dueDate) : "—", days_overdue: String(daysOverdue), invoice_link: "" },
+        subject: `Payment Reminder: Invoice #${inv.number} from ${senderName}`,
+        htmlBody: buildOverdueEmailHTML(inv, data.settings),
       });
       if (result.success) showToast(`Overdue reminder sent to ${inv.clientEmail}`);
-      else showToast("Reminder failed — check your SENDER_EMAIL env var", "error");
+      else showToast(`Reminder failed: ${result.error || "check SENDER_EMAIL env var"}`, "error");
     } catch (e) { showToast(`Email error: ${e.message}`, "error"); }
   };
 
@@ -642,6 +636,7 @@ export default function InvoicingPlatform() {
         {page === "dashboard" && <DashboardView {...{ data, totalRevenue, outstanding, overdueCount, draftCount, setPage, setModal, updateInvoiceStatus, handleDownloadPDF, handleSendEmail }} />}
         {page === "invoices" && !viewInvoice && <InvoicesView {...{ data, setModal, setEditItem, setViewInvoice, deleteInvoice, updateInvoiceStatus, handleDownloadPDF, handleSendEmail, handleSendOverdue }} />}
         {page === "invoices" && viewInvoice && <InvoiceDetailView invoice={data.invoices.find(i => i.id === viewInvoice.id) || viewInvoice} data={data} onBack={() => setViewInvoice(null)} updateStatus={updateInvoiceStatus} markPartial={markPartialPayment} handleDownloadPDF={handleDownloadPDF} handleSendEmail={handleSendEmail} handleSendOverdue={handleSendOverdue} />}
+        {page === "clients" && <ClientsView {...{ data, setModal, setEditItem, deleteClient }} />}
         {page === "projects" && <ProjectsView {...{ data, setModal, setEditItem, deleteProject, saveProject }} />}
         {page === "services" && <ServicesView {...{ data, setModal, setEditItem, deleteService }} />}
         {page === "categories" && <CategoriesView {...{ data, setModal, setEditItem, deleteCategory }} />}
@@ -651,6 +646,7 @@ export default function InvoicingPlatform() {
       </main>
 
       {/* Modals */}
+      <Modal open={modal === "client"} onClose={() => { setModal(null); setEditItem(null); }} title={editItem ? "Edit Client" : "New Client"}><ClientForm item={editItem} onSave={saveClient} onCancel={() => { setModal(null); setEditItem(null); }} /></Modal>
       <Modal open={modal === "category"} onClose={() => { setModal(null); setEditItem(null); }} title={editItem ? "Edit Category" : "New Category"}><CategoryForm item={editItem} onSave={saveCategory} onCancel={() => { setModal(null); setEditItem(null); }} /></Modal>
       <Modal open={modal === "service"} onClose={() => { setModal(null); setEditItem(null); }} title={editItem ? "Edit Service" : "New Service"}><ServiceForm item={editItem} categories={data.categories} onSave={saveService} onCancel={() => { setModal(null); setEditItem(null); }} /></Modal>
       <Modal open={modal === "project"} onClose={() => { setModal(null); setEditItem(null); }} title={editItem ? "Edit Project" : "New Project"}><ProjectForm item={editItem} onSave={saveProject} onCancel={() => { setModal(null); setEditItem(null); }} /></Modal>
@@ -1260,24 +1256,33 @@ function ProjectForm({ item, onSave, onCancel }) {
 
 
 function InvoiceForm({ item, data, onSave, onCancel }) {
-  const [form, setForm] = useState({ clientName: "", clientEmail: "", clientPhone: "", clientAddress: "", projectId: "", dueDate: "", notes: "", items: [{ description: "", qty: 1, rate: 0 }], ...item });
+  const [form, setForm] = useState({ clientId: "", clientName: "", clientEmail: "", clientPhone: "", clientAddress: "", projectId: "", dueDate: "", notes: "", items: [{ description: "", qty: 1, rate: 0 }], ...item });
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
   const setLI = (i, k, v) => { const items = [...form.items]; items[i] = { ...items[i], [k]: v }; set("items", items); };
   const addLine = () => set("items", [...form.items, { description: "", qty: 1, rate: 0 }]);
   const removeLine = (i) => set("items", form.items.filter((_, idx) => idx !== i));
   const addSvc = (svcId) => { const svc = data.services.find(s => s.id === svcId); if (svc) set("items", [...form.items, { description: svc.name, qty: 1, rate: svc.rate || 0 }]); };
   const total = form.items.reduce((s, li) => s + ((parseFloat(li.qty) || 0) * (parseFloat(li.rate) || 0)), 0);
+  const selectedClient = data.clients.find(c => c.id === form.clientId);
+  const handleClientSelect = (id) => {
+    const cl = data.clients.find(c => c.id === id);
+    if (cl) setForm(f => ({ ...f, clientId: cl.id, clientName: cl.name, clientEmail: cl.email, clientPhone: cl.phone, clientAddress: cl.address }));
+    else setForm(f => ({ ...f, clientId: "", clientName: "", clientEmail: "", clientPhone: "", clientAddress: "" }));
+  };
   return <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
     <div style={{ background: theme.surfaceAlt, borderRadius: theme.radiusSm, padding: "12px 14px", border: `1px solid ${theme.borderLight}` }}>
-      <div style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em", color: theme.textMuted, marginBottom: 10 }}>Client Info</div>
-      <div className="r-g" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-        <Input label="Client Name *" value={form.clientName} onChange={e => set("clientName", e.target.value)} placeholder="Full name or company" />
-        <Input label="Client Email *" type="email" value={form.clientEmail} onChange={e => set("clientEmail", e.target.value)} placeholder="client@example.com" />
-        <Input label="Phone (optional)" value={form.clientPhone} onChange={e => set("clientPhone", e.target.value)} placeholder="+1 (555) 000-0000" />
-        <Input label="Due Date" type="date" value={form.dueDate} onChange={e => set("dueDate", e.target.value)} />
-      </div>
-      <div style={{ marginTop: 10 }}><Textarea label="Address (optional)" value={form.clientAddress} onChange={e => set("clientAddress", e.target.value)} placeholder="Street, City, State ZIP" /></div>
+      <Select label="Client *" value={form.clientId} onChange={e => handleClientSelect(e.target.value)}>
+        <option value="">Select a client…</option>
+        {data.clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+      </Select>
+      {selectedClient && <div style={{ marginTop: 10, fontSize: 13, color: theme.textSecondary, lineHeight: 1.6 }}>
+        {selectedClient.email && <div>{selectedClient.email}</div>}
+        {selectedClient.phone && <div>{selectedClient.phone}</div>}
+        {selectedClient.address && <div style={{ whiteSpace: "pre-line" }}>{selectedClient.address}</div>}
+      </div>}
+      {data.clients.length === 0 && <div style={{ marginTop: 8, fontSize: 12, color: theme.textMuted }}>No clients yet — add one in the Clients tab first.</div>}
     </div>
+    <Input label="Due Date" type="date" value={form.dueDate} onChange={e => set("dueDate", e.target.value)} />
     <Select label="Project (optional)" value={form.projectId} onChange={e => set("projectId", e.target.value)}><option value="">No Project</option>{data.projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</Select>
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}><label style={{ fontSize: 12, fontWeight: 600, color: theme.textSecondary, textTransform: "uppercase", letterSpacing: "0.05em" }}>Line Items</label>{data.services.length > 0 && <Select style={{ fontSize: 11, padding: "4px 8px" }} onChange={e => { if (e.target.value) { addSvc(e.target.value); e.target.value = ""; } }}><option value="">+ Add Service</option>{data.services.map(s => <option key={s.id} value={s.id}>{s.name} ({fmt(s.rate)})</option>)}</Select>}</div>
@@ -1285,6 +1290,45 @@ function InvoiceForm({ item, data, onSave, onCancel }) {
       <Btn size="sm" variant="secondary" icon={Icons.plus} onClick={addLine} style={{ marginTop: 4 }}>Add Line</Btn>
     </div>
     <Textarea label="Notes" value={form.notes} onChange={e => set("notes", e.target.value)} placeholder="Payment terms, thank you note, etc." />
-    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 0", borderTop: `1px solid ${theme.borderLight}` }}><div style={{ fontFamily: "'Fraunces', serif", fontSize: 18, fontWeight: 700 }}>Total: {fmt(total)}</div><div style={{ display: "flex", gap: 8 }}><Btn variant="secondary" onClick={onCancel}>Cancel</Btn><Btn onClick={() => form.clientName.trim() && onSave(form)}>Save Invoice</Btn></div></div>
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 0", borderTop: `1px solid ${theme.borderLight}` }}><div style={{ fontFamily: "'Fraunces', serif", fontSize: 18, fontWeight: 700 }}>Total: {fmt(total)}</div><div style={{ display: "flex", gap: 8 }}><Btn variant="secondary" onClick={onCancel}>Cancel</Btn><Btn onClick={() => form.clientId && onSave(form)}>Save Invoice</Btn></div></div>
+  </div>;
+}
+
+function ClientsView({ data, setModal, setEditItem, deleteClient }) {
+  return <div>
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+      <h1 style={{ margin: 0, fontFamily: "'Fraunces', serif", fontSize: 24, fontWeight: 700 }}>Clients</h1>
+      <Btn icon={Icons.plus} onClick={() => setModal("client")}>New Client</Btn>
+    </div>
+    {data.clients.length === 0 ? <Empty icon={Icons.user} message="No clients yet" /> :
+      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        {data.clients.map(cl => <div key={cl.id} style={{ background: theme.surface, border: `1px solid ${theme.border}`, borderRadius: theme.radius, padding: "14px 16px", display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+          <div>
+            <div style={{ fontWeight: 600, fontSize: 15 }}>{cl.name}</div>
+            {cl.email && <div style={{ fontSize: 13, color: theme.textSecondary, marginTop: 2 }}>{cl.email}</div>}
+            {cl.phone && <div style={{ fontSize: 13, color: theme.textSecondary }}>{cl.phone}</div>}
+            {cl.address && <div style={{ fontSize: 13, color: theme.textSecondary, whiteSpace: "pre-line" }}>{cl.address}</div>}
+          </div>
+          <div style={{ display: "flex", gap: 6 }}>
+            <Btn size="sm" variant="secondary" icon={Icons.edit} onClick={() => { setEditItem(cl); setModal("client"); }} />
+            <Btn size="sm" variant="danger" icon={Icons.trash} onClick={() => deleteClient(cl.id)} />
+          </div>
+        </div>)}
+      </div>}
+  </div>;
+}
+
+function ClientForm({ item, onSave, onCancel }) {
+  const [form, setForm] = useState({ name: "", email: "", phone: "", address: "", ...item });
+  const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
+  return <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+    <Input label="Name *" value={form.name} onChange={e => set("name", e.target.value)} placeholder="Full name or company" />
+    <Input label="Email" type="email" value={form.email} onChange={e => set("email", e.target.value)} placeholder="client@example.com" />
+    <Input label="Phone" value={form.phone} onChange={e => set("phone", e.target.value)} placeholder="+1 (555) 000-0000" />
+    <Textarea label="Address" value={form.address} onChange={e => set("address", e.target.value)} placeholder="Street, City, State ZIP" />
+    <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+      <Btn variant="secondary" onClick={onCancel}>Cancel</Btn>
+      <Btn onClick={() => form.name.trim() && onSave(form)}>Save Client</Btn>
+    </div>
   </div>;
 }
