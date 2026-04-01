@@ -507,8 +507,8 @@ export default function InvoicingPlatform() {
     if (saveTimer.current) clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(() => {
       fetch("/api/data", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(newData) })
-        .then(r => { if (!r.ok) showToast("Changes couldn't be saved — check your database connection", "error"); })
-        .catch(() => showToast("Changes couldn't be saved — check your database connection", "error"));
+        .then(async r => { if (!r.ok) { const body = await r.json().catch(() => ({})); showToast(`Save failed: ${body.error || r.status}`, "error"); } })
+        .catch(() => showToast("Save failed — check your internet connection", "error"));
     }, 800);
   };
 
