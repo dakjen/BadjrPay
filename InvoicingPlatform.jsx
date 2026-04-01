@@ -211,6 +211,28 @@ async function generateInvoicePDF(invoice, settings, client) {
   doc.text(fmt(remaining), margin + cW - 3, y, { align: "right" });
   y += 14;
 
+  // Payment terms
+  const deposit = parseFloat(invoice.deposit || 0);
+  const balance = (invoice.total || 0) - deposit;
+  const paymentTermsLines = [];
+  if (deposit > 0) {
+    paymentTermsLines.push(`Deposit of ${fmt(deposit)} is due upon receipt.`);
+    if (invoice.dueDate) paymentTermsLines.push(`Remaining balance of ${fmt(balance)} is due by ${fmtDate(invoice.dueDate)}.`);
+    else paymentTermsLines.push(`Remaining balance of ${fmt(balance)} due upon completion.`);
+  } else {
+    if (invoice.dueDate) paymentTermsLines.push(`Payment of ${fmt(invoice.total || 0)} is due by ${fmtDate(invoice.dueDate)}.`);
+  }
+  if (paymentTermsLines.length > 0) {
+    doc.setFillColor(240, 248, 243);
+    const termsH = 10 + paymentTermsLines.length * 5.5;
+    doc.roundedRect(margin, y, cW, termsH, 2, 2, "F");
+    doc.setTextColor(45, 90, 61); doc.setFont("helvetica", "bold"); doc.setFontSize(7);
+    doc.text("PAYMENT TERMS", margin + 4, y + 5);
+    doc.setFont("helvetica", "normal"); doc.setFontSize(8.5); doc.setTextColor(...D);
+    paymentTermsLines.forEach((line, idx) => { doc.text(line, margin + 4, y + 11 + idx * 5.5); });
+    y += termsH + 6;
+  }
+
   if (invoice.notes) {
     doc.setFillColor(247, 245, 240);
     const noteLines = doc.splitTextToSize(invoice.notes, cW - 8);
@@ -271,13 +293,20 @@ const SENDGRID_TEMPLATES = {
 
 function escHtml(s) { return String(s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;"); }
 
+function safeDate(d) { if (!d) return "—"; try { const s = String(d).trim(); const iso = /^\d{4}-\d{2}-\d{2}/.test(s) ? s.slice(0,10) : new Date(s).toISOString().split("T")[0]; return fmtDate(iso); } catch { return "—"; } }
+
 function buildInvoiceEmailHTML(invoice, settings) {
   const remaining = (invoice.total || 0) - (invoice.amountPaid || 0);
   const amount = fmt(remaining).replace("$", "");
   const clientName = escHtml(invoice.clientName || "");
-  const senderName = escHtml(settings.senderName || settings.companyName || "");
+  const senderName = escHtml(settings.companyName || "BaDjR Tech");
   const invoiceNumber = escHtml(invoice.number || "");
-  const dueDate = invoice.dueDate ? fmtDate(invoice.dueDate) : "—";
+  const dueDate = safeDate(invoice.dueDate);
+  const deposit = parseFloat(invoice.deposit || 0);
+  const balance = (invoice.total || 0) - deposit;
+  const paymentTermsHtml = deposit > 0
+    ? `<tr><td colspan="2" style="font-size:13px;color:#476c2e;padding:10px 0 0;font-style:italic;">Deposit of ${escHtml(fmt(deposit))} is due upon receipt. Remaining balance of ${escHtml(fmt(balance))}${invoice.dueDate ? ` due by ${dueDate}` : " due upon completion"}.</td></tr>`
+    : invoice.dueDate ? `<tr><td colspan="2" style="font-size:13px;color:#476c2e;padding:10px 0 0;font-style:italic;">Full payment of $${amount} is due by ${dueDate}.</td></tr>` : "";
   return `<!DOCTYPE html>
 <html lang="en">
 <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>You Have a New Invoice</title></head>
@@ -304,8 +333,9 @@ function buildInvoiceEmailHTML(invoice, settings) {
             <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
               <tr><td style="font-size:13px;color:#888888;padding:8px 0;border-bottom:1px solid #f2f2f2;">Invoice #</td><td align="right" style="font-size:13px;color:#363636;font-weight:500;padding:8px 0;border-bottom:1px solid #f2f2f2;">${invoiceNumber}</td></tr>
               <tr><td style="font-size:13px;color:#888888;padding:8px 0;border-bottom:1px solid #f2f2f2;">From</td><td align="right" style="font-size:13px;color:#363636;font-weight:500;padding:8px 0;border-bottom:1px solid #f2f2f2;">${senderName}</td></tr>
-              <tr><td style="font-size:13px;color:#888888;padding:8px 0;border-bottom:1px solid #f2f2f2;">Amount Due</td><td align="right" style="font-size:13px;color:#363636;font-weight:500;padding:8px 0;border-bottom:1px solid #f2f2f2;">$${amount}</td></tr>
+              ${deposit > 0 ? `<tr><td style="font-size:13px;color:#888888;padding:8px 0;border-bottom:1px solid #f2f2f2;">Deposit Due</td><td align="right" style="font-size:13px;color:#363636;font-weight:500;padding:8px 0;border-bottom:1px solid #f2f2f2;">${escHtml(fmt(deposit))}</td></tr><tr><td style="font-size:13px;color:#888888;padding:8px 0;border-bottom:1px solid #f2f2f2;">Balance</td><td align="right" style="font-size:13px;color:#363636;font-weight:500;padding:8px 0;border-bottom:1px solid #f2f2f2;">${escHtml(fmt(balance))}</td></tr>` : `<tr><td style="font-size:13px;color:#888888;padding:8px 0;border-bottom:1px solid #f2f2f2;">Amount Due</td><td align="right" style="font-size:13px;color:#363636;font-weight:500;padding:8px 0;border-bottom:1px solid #f2f2f2;">$${amount}</td></tr>`}
               <tr><td style="font-size:13px;color:#888888;padding:8px 0;">Due Date</td><td align="right" style="font-size:13px;color:#363636;font-weight:500;padding:8px 0;">${dueDate}</td></tr>
+              ${paymentTermsHtml}
             </table>
             <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="border-top:1px solid #e9e9e9;margin:24px 0;"><tr><td></td></tr></table>
             <p style="margin:0 0 24px;font-size:15px;color:#363636;line-height:1.6;">A PDF copy of your invoice is attached for your records. If you have any questions, please reach out to ${senderName} directly.</p>
@@ -333,9 +363,9 @@ function buildOverdueEmailHTML(invoice, settings) {
   const remaining = (invoice.total || 0) - (invoice.amountPaid || 0);
   const amount = fmt(remaining).replace("$", "");
   const clientName = escHtml(invoice.clientName || "");
-  const senderName = escHtml(settings.senderName || settings.companyName || "");
+  const senderName = escHtml(settings.companyName || "BaDjR Tech");
   const invoiceNumber = escHtml(invoice.number || "");
-  const dueDate = invoice.dueDate ? fmtDate(invoice.dueDate) : "—";
+  const dueDate = safeDate(invoice.dueDate);
   const daysOverdue = invoice.dueDate
     ? Math.max(0, Math.floor((Date.now() - new Date(invoice.dueDate).getTime()) / 86400000))
     : 0;
@@ -731,25 +761,34 @@ function InvoicesView({ data, setModal, setEditItem, setViewInvoice, deleteInvoi
     <div style={{ background: theme.surface, borderRadius: theme.radius, border: `1px solid ${theme.borderLight}`, overflow: "hidden" }}>
       {filtered.length === 0 ? <Empty icon={Icons.invoice} message="No invoices found" action={<Btn size="sm" onClick={() => setModal("invoice")} icon={Icons.plus}>Create Invoice</Btn>} /> :
         <table style={{ width: "100%", fontSize: 13 }}><thead><tr style={{ borderBottom: `1px solid ${theme.borderLight}` }}>
-          {["Invoice", "Client", "Date", "Amount", "Status", "Actions"].map(h => <th key={h} style={{ padding: "10px 14px", textAlign: "left", fontSize: 11, textTransform: "uppercase", letterSpacing: "0.05em", color: theme.textMuted, fontWeight: 600 }}>{h}</th>)}
+          {["Invoice", "Client", "Due Date", "Total", "Balance", "Status", "Actions"].map(h => <th key={h} style={{ padding: "10px 14px", textAlign: "left", fontSize: 11, textTransform: "uppercase", letterSpacing: "0.05em", color: theme.textMuted, fontWeight: 600 }}>{h}</th>)}
         </tr></thead><tbody>
-          {filtered.map(inv => <tr key={inv.id} style={{ borderBottom: `1px solid ${theme.borderLight}`, cursor: "pointer" }} onClick={() => setViewInvoice(inv)}>
-            <td style={{ padding: "10px 14px", fontWeight: 500 }}>{inv.number}</td>
-            <td style={{ padding: "10px 14px", color: theme.textSecondary }}>{inv.clientName || "-"}</td>
-            <td style={{ padding: "10px 14px", color: theme.textMuted, fontSize: 12 }}>{inv.createdAt ? fmtDate(inv.createdAt) : "-"}</td>
-            <td style={{ padding: "10px 14px", fontWeight: 600, fontFamily: "'Fraunces', serif" }}>{fmt(inv.total || 0)}</td>
-            <td style={{ padding: "10px 14px" }}><StatusBadge status={inv.status} /></td>
-            <td style={{ padding: "10px 14px" }} onClick={e => e.stopPropagation()}>
-              <div style={{ display: "flex", gap: 3 }}>
-                <Btn size="sm" variant="secondary" icon={Icons.download} onClick={() => handleDownloadPDF(inv)} title="PDF" />
-                <Btn size="sm" variant="blue" icon={Icons.mail} onClick={() => handleSendEmail(inv)} title="Email" />
-                {["sent", "viewed", "partial"].includes(inv.status) && <Btn size="sm" variant="success" icon={Icons.check} onClick={() => updateInvoiceStatus(inv.id, "paid")} />}
-                {inv.status === "overdue" && <Btn size="sm" variant="danger" icon={Icons.mail} onClick={() => handleSendOverdue(inv)} title="Send overdue reminder" />}
-                <Btn size="sm" variant="ghost" icon={Icons.edit} onClick={() => { setEditItem(inv); setModal("invoice"); }} />
-                <Btn size="sm" variant="ghost" icon={Icons.trash} onClick={() => { if (confirm("Delete?")) deleteInvoice(inv.id); }} style={{ color: theme.danger }} />
-              </div>
-            </td>
-          </tr>)}
+          {filtered.map(inv => {
+            const balance = (inv.total || 0) - (inv.amountPaid || 0);
+            return <tr key={inv.id} style={{ borderBottom: `1px solid ${theme.borderLight}`, cursor: "pointer" }} onClick={() => setViewInvoice(inv)}>
+              <td style={{ padding: "10px 14px" }}>
+                <div style={{ fontWeight: 600 }}>{inv.number}</div>
+                {inv.notes && <div style={{ fontSize: 11, color: theme.textMuted, marginTop: 2, maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{inv.notes}</div>}
+              </td>
+              <td style={{ padding: "10px 14px" }}>
+                <div style={{ fontWeight: 500, color: theme.text }}>{inv.clientName || "-"}</div>
+                {inv.clientEmail && <div style={{ fontSize: 11, color: theme.textMuted, marginTop: 1 }}>{inv.clientEmail}</div>}
+              </td>
+              <td style={{ padding: "10px 14px", color: inv.dueDate && new Date(inv.dueDate) < new Date() && inv.status !== "paid" ? theme.danger : theme.textSecondary, fontSize: 12 }}>{inv.dueDate ? fmtDate(inv.dueDate) : "-"}</td>
+              <td style={{ padding: "10px 14px", fontWeight: 600, fontFamily: "'Fraunces', serif" }}>{fmt(inv.total || 0)}</td>
+              <td style={{ padding: "10px 14px", fontWeight: 500, color: balance > 0 ? theme.warning : theme.success, fontFamily: "'Fraunces', serif" }}>{balance > 0 ? fmt(balance) : "—"}</td>
+              <td style={{ padding: "10px 14px" }}><StatusBadge status={inv.status} /></td>
+              <td style={{ padding: "10px 14px" }} onClick={e => e.stopPropagation()}>
+                <div style={{ display: "flex", gap: 3 }}>
+                  <Btn size="sm" variant="secondary" icon={Icons.download} onClick={() => handleDownloadPDF(inv)} title="Download PDF" />
+                  <Btn size="sm" variant="blue" icon={Icons.mail} onClick={() => handleSendEmail(inv)} title="Email Invoice" />
+                  {inv.status !== "paid" && <Btn size="sm" variant="success" icon={Icons.check} onClick={() => updateInvoiceStatus(inv.id, "paid")} title="Mark Paid" />}
+                  <Btn size="sm" variant="ghost" icon={Icons.edit} onClick={() => { setEditItem(inv); setModal("invoice"); }} title="Edit" />
+                  <Btn size="sm" variant="ghost" icon={Icons.trash} onClick={() => { if (confirm("Delete?")) deleteInvoice(inv.id); }} style={{ color: theme.danger }} title="Delete" />
+                </div>
+              </td>
+            </tr>;
+          })}
         </tbody></table>}
     </div>
   </div>;
@@ -771,9 +810,9 @@ function InvoiceDetailView({ invoice: inv, data, onBack, updateStatus, markParti
 
     <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
       <Btn variant="secondary" icon={downloadingPDF ? <span className="spin" style={{ display: "inline-flex" }}>{Icons.spinner}</span> : Icons.download} onClick={onDownloadPDF} disabled={downloadingPDF}>{downloadingPDF ? "Generating..." : "Download PDF"}</Btn>
-      <Btn variant="blue" icon={sending ? <span className="spin" style={{ display: "inline-flex" }}>{Icons.spinner}</span> : Icons.mail} onClick={onSend} disabled={sending}>{sending ? "Sending..." : "Email to Client"}</Btn>
+      <Btn variant="blue" icon={sending ? <span className="spin" style={{ display: "inline-flex" }}>{Icons.spinner}</span> : Icons.mail} onClick={onSend} disabled={sending}>{sending ? "Sending..." : "Send"}</Btn>
       {inv.status === "overdue" && <Btn variant="danger" icon={sendingReminder ? <span className="spin" style={{ display: "inline-flex" }}>{Icons.spinner}</span> : Icons.mail} onClick={onSendReminder} disabled={sendingReminder}>{sendingReminder ? "Sending..." : "Send Overdue Reminder"}</Btn>}
-      {inv.status !== "paid" && <Btn variant="success" icon={Icons.check} onClick={() => updateStatus(inv.id, "paid")}>Mark Fully Paid</Btn>}
+      {inv.status !== "paid" && <Btn variant="success" icon={Icons.check} onClick={() => updateStatus(inv.id, "paid")}>Paid</Btn>}
     </div>
 
     <div style={{ background: theme.surface, borderRadius: theme.radius, border: `1px solid ${theme.borderLight}`, padding: "28px 32px" }}>
@@ -1306,7 +1345,7 @@ function generateInstallments(total, numPayments, interval, startDate) {
 
 function InvoiceForm({ item, data, onSave, onCancel }) {
   const hasExistingInstallments = (item?.installments || []).length > 0;
-  const [form, setForm] = useState({ clientId: "", clientName: "", clientEmail: "", clientPhone: "", clientAddress: "", projectId: "", dueDate: "", notes: "", items: [{ description: "", qty: 1, rate: 0 }], installments: [], paymentPlan: hasExistingInstallments, planPayments: 3, planInterval: "monthly", planStartDate: "", ...item });
+  const [form, setForm] = useState({ clientId: "", clientName: "", clientEmail: "", clientPhone: "", clientAddress: "", projectId: "", dueDate: "", notes: "", deposit: 0, items: [{ description: "", qty: 1, rate: 0 }], installments: [], paymentPlan: hasExistingInstallments, planPayments: 3, planInterval: "monthly", planStartDate: "", ...item });
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
   const setLI = (i, k, v) => { const items = [...form.items]; items[i] = { ...items[i], [k]: v }; set("items", items); };
   const addLine = () => set("items", [...form.items, { description: "", qty: 1, rate: 0 }]);
@@ -1342,7 +1381,10 @@ function InvoiceForm({ item, data, onSave, onCancel }) {
       </div>}
       {data.clients.length === 0 && <div style={{ marginTop: 8, fontSize: 12, color: theme.textMuted }}>No clients yet — add one in the Clients tab first.</div>}
     </div>
-    <Input label="Due Date" type="date" value={form.dueDate} onChange={e => set("dueDate", e.target.value)} />
+    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+      <Input label="Due Date" type="date" value={form.dueDate} onChange={e => set("dueDate", e.target.value)} />
+      <Input label="Deposit Amount (optional)" type="number" value={form.deposit || ""} onChange={e => set("deposit", e.target.value)} placeholder="0.00" />
+    </div>
     <Select label="Project (optional)" value={form.projectId} onChange={e => set("projectId", e.target.value)}><option value="">No Project</option>{data.projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</Select>
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}><label style={{ fontSize: 12, fontWeight: 600, color: theme.textSecondary, textTransform: "uppercase", letterSpacing: "0.05em" }}>Line Items</label>{data.services.length > 0 && <Select style={{ fontSize: 11, padding: "4px 8px" }} onChange={e => { if (e.target.value) { addSvc(e.target.value); e.target.value = ""; } }}><option value="">+ Add Service</option>{data.services.map(s => <option key={s.id} value={s.id}>{s.name} ({fmt(s.rate)})</option>)}</Select>}</div>
