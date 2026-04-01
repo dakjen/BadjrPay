@@ -478,9 +478,7 @@ export default function InvoicingPlatform() {
   const isMobile = useIsMobile();
   const { data: session } = useSession();
   const [data, setData] = useState(defaultData);
-  const [page, setPage] = useState(() => {
-    try { return localStorage.getItem("badjrpay_page") || "dashboard"; } catch { return "dashboard"; }
-  });
+  const [page, setPage] = useState("dashboard");
   const [modal, setModal] = useState(null);
   const [editItem, setEditItem] = useState(null);
   const [viewInvoice, setViewInvoice] = useState(null);
@@ -489,6 +487,7 @@ export default function InvoicingPlatform() {
 
   useEffect(() => {
     loadFonts();
+    try { const p = localStorage.getItem("badjrpay_page"); if (p) setPage(p); } catch {}
     fetch("/api/data").then(r => r.ok ? r.json() : null).then(saved => {
       if (saved && Object.keys(saved).length > 0) {
         setData({ ...defaultData, ...saved, settings: { ...defaultData.settings, ...(saved.settings || {}) } });
