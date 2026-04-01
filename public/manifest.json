@@ -1,0 +1,13 @@
+{
+  "name": "Badjr-Pay",
+  "short_name": "Badjr-Pay",
+  "description": "Invoicing platform by BaDjR Tech",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#F7F5F0",
+  "theme_color": "#2D5A3D",
+  "orientation": "portrait-primary",
+  "icons": [
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}

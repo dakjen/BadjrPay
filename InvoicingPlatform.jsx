@@ -1,4 +1,5 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
+import { useSession, signOut } from "next-auth/react";
 
 function useIsMobile() {
   const [isMobile, setIsMobile] = useState(false);
@@ -11,7 +12,6 @@ function useIsMobile() {
   return isMobile;
 }
 
-const STORAGE_KEY = "invoicing_platform_data";
 
 // ─── Fonts (loaded safely) ───
 let fontsLoaded = false;
@@ -53,7 +53,7 @@ const defaultData = {
     { id: genId(), name: "Consulting", color: "#C4841D" },
   ],
   services: [], projects: [], invoices: [],
-  settings: { sendgridApiKey: "", senderEmail: "", senderName: "", companyName: "", companyAddress: "", companyPhone: "" },
+  settings: { senderEmail: "", senderName: "", companyName: "", companyAddress: "", companyPhone: "" },
 };
 
 // ═══════════════════════════════════════
@@ -494,26 +494,32 @@ function buildSenderConfirmationHTML(invoice, settings) {
 // ═══════════════════════════════════════
 export default function InvoicingPlatform() {
   const isMobile = useIsMobile();
+  const { data: session } = useSession();
   const [data, setData] = useState(defaultData);
   const [page, setPage] = useState("dashboard");
   const [modal, setModal] = useState(null);
   const [editItem, setEditItem] = useState(null);
   const [viewInvoice, setViewInvoice] = useState(null);
   const [toast, setToast] = useState(null);
+  const saveTimer = useRef(null);
 
   useEffect(() => {
     loadFonts();
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY);
-      if (saved) {
-        const p = JSON.parse(saved);
-        setData({ ...defaultData, ...p, settings: { ...defaultData.settings, ...(p.settings || {}) } });
+    fetch("/api/data").then(r => r.ok ? r.json() : null).then(saved => {
+      if (saved && Object.keys(saved).length > 0) {
+        setData({ ...defaultData, ...saved, settings: { ...defaultData.settings, ...(saved.settings || {}) } });
       }
-    } catch {}
+    }).catch(() => {});
   }, []);
-  useEffect(() => { try { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); } catch {} }, [data]);
 
-  const update = (key, val) => setData(d => ({ ...d, [key]: val }));
+  const persistData = (newData) => {
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(() => {
+      fetch("/api/data", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(newData) }).catch(() => {});
+    }, 800);
+  };
+
+  const update = (key, val) => setData(d => { const newData = { ...d, [key]: val }; persistData(newData); return newData; });
   const showToast = (message, type = "success") => setToast({ message, type });
 
   const totalRevenue = data.invoices.filter(i => i.status === "paid").reduce((s, i) => s + (i.total || 0), 0);
@@ -567,8 +573,9 @@ export default function InvoicingPlatform() {
     } catch (e) { showToast("Failed to generate PDF", "error"); }
   };
 
+  const sendEmail = (body) => fetch("/api/email", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).then(r => r.json());
+
   const handleSendEmail = async (inv) => {
-    if (!data.settings.sendgridApiKey) { showToast("Add your SendGrid API key in Settings first", "error"); setPage("settings"); return; }
     if (!inv.clientEmail) { showToast("This invoice has no client email. Edit the invoice to add one.", "error"); return; }
     if (!data.settings.senderEmail) { showToast("Set your sender email in Settings first", "error"); setPage("settings"); return; }
     try {
@@ -576,8 +583,8 @@ export default function InvoicingPlatform() {
       const client = { email: inv.clientEmail, phone: inv.clientPhone, address: inv.clientAddress };
       const { pdfBase64, filename } = await generateInvoicePDF(inv, data.settings, client);
       const senderName = data.settings.senderName || data.settings.companyName;
-      const result = await sendInvoiceEmail({
-        apiKey: data.settings.sendgridApiKey, senderEmail: data.settings.senderEmail, senderName,
+      const result = await sendEmail({
+        senderEmail: data.settings.senderEmail, senderName,
         recipientEmail: inv.clientEmail, recipientName: inv.clientName,
         templateId: SENDGRID_TEMPLATES.newInvoice,
         templateData: { client_name: inv.clientName || "", sender_name: senderName, invoice_number: inv.number, invoice_amount: remaining.toFixed(2), due_date: inv.dueDate ? fmtDate(inv.dueDate) : "—", invoice_link: "" },
@@ -586,36 +593,35 @@ export default function InvoicingPlatform() {
       if (result.success) {
         updateInvoiceStatus(inv.id, "sent");
         showToast(`Invoice emailed to ${inv.clientEmail}`);
-        sendInvoiceEmail({
-          apiKey: data.settings.sendgridApiKey, senderEmail: data.settings.senderEmail, senderName,
+        sendEmail({
+          senderEmail: data.settings.senderEmail, senderName,
           recipientEmail: data.settings.senderEmail, recipientName: senderName,
           templateId: SENDGRID_TEMPLATES.invoiceSubmitted,
           templateData: { sender_name: senderName, invoice_number: inv.number, client_name: inv.clientName || "", invoice_amount: remaining.toFixed(2), sent_date: fmtDate(today()), due_date: inv.dueDate ? fmtDate(inv.dueDate) : "—", invoice_link: "" },
         }).catch(() => {});
-      } else showToast(`Email failed — check your SendGrid config`, "error");
+      } else showToast("Email failed — check sender email in Settings", "error");
     } catch (e) { showToast(`Email error: ${e.message}`, "error"); }
   };
 
   const handleSendOverdue = async (inv) => {
-    if (!data.settings.sendgridApiKey) { showToast("Add your SendGrid API key in Settings first", "error"); setPage("settings"); return; }
     if (!inv.clientEmail) { showToast("This invoice has no client email. Edit the invoice to add one.", "error"); return; }
     if (!data.settings.senderEmail) { showToast("Set your sender email in Settings first", "error"); setPage("settings"); return; }
     try {
       const remaining = (inv.total || 0) - (inv.amountPaid || 0);
       const senderName = data.settings.senderName || data.settings.companyName;
       const daysOverdue = inv.dueDate ? Math.max(0, Math.floor((Date.now() - new Date(inv.dueDate).getTime()) / 86400000)) : 0;
-      const result = await sendInvoiceEmail({
-        apiKey: data.settings.sendgridApiKey, senderEmail: data.settings.senderEmail, senderName,
+      const result = await sendEmail({
+        senderEmail: data.settings.senderEmail, senderName,
         recipientEmail: inv.clientEmail, recipientName: inv.clientName,
         templateId: SENDGRID_TEMPLATES.overdue,
         templateData: { client_name: inv.clientName || "", sender_name: senderName, invoice_number: inv.number, invoice_amount: remaining.toFixed(2), due_date: inv.dueDate ? fmtDate(inv.dueDate) : "—", days_overdue: String(daysOverdue), invoice_link: "" },
       });
       if (result.success) showToast(`Overdue reminder sent to ${inv.clientEmail}`);
-      else showToast(`Reminder failed — check your SendGrid config`, "error");
+      else showToast("Reminder failed — check sender email in Settings", "error");
     } catch (e) { showToast(`Email error: ${e.message}`, "error"); }
   };
 
-  const resetData = () => { if (confirm("Reset all data?")) { setData(defaultData); try { localStorage.removeItem(STORAGE_KEY); } catch {} } };
+  const resetData = () => { if (confirm("Reset all data?")) { const d = defaultData; setData(d); fetch("/api/data", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(d) }).catch(() => {}); } };
 
   return (
     <div style={{ display: "flex", minHeight: "100vh", background: theme.bg, fontFamily: "'DM Sans', sans-serif", color: theme.text }}>
@@ -629,7 +635,11 @@ export default function InvoicingPlatform() {
         <div style={{ display: "flex", flexDirection: "column", gap: 2, flex: 1 }}>
           {navItems.map(n => <button key={n.id} onClick={() => { setPage(n.id); setViewInvoice(null); }} style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 12px", border: "none", borderRadius: theme.radiusSm, cursor: "pointer", background: page === n.id ? theme.accentLight : "transparent", color: page === n.id ? theme.accent : theme.textSecondary, fontWeight: page === n.id ? 600 : 400, fontSize: 13, fontFamily: "'DM Sans', sans-serif", transition: "all 0.15s", textAlign: "left" }}>{n.icon}{n.label}</button>)}
         </div>
-        <button onClick={resetData} style={{ fontSize: 11, color: theme.textMuted, background: "none", border: "none", cursor: "pointer", padding: "8px 12px", textAlign: "left", fontFamily: "'DM Sans', sans-serif" }}>Reset Data</button>
+        <div style={{ borderTop: `1px solid ${theme.borderLight}`, paddingTop: 12, marginTop: 8 }}>
+          {session?.user && <div style={{ padding: "6px 12px", marginBottom: 4 }}><div style={{ fontSize: 12, fontWeight: 600, color: theme.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{session.user.name}</div><div style={{ fontSize: 11, color: theme.textMuted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{session.user.email}</div></div>}
+          <button onClick={() => signOut({ callbackUrl: "/login" })} style={{ fontSize: 12, color: theme.danger, background: "none", border: "none", cursor: "pointer", padding: "6px 12px", textAlign: "left", fontFamily: "'DM Sans', sans-serif", width: "100%" }}>Sign Out</button>
+          <button onClick={resetData} style={{ fontSize: 11, color: theme.textMuted, background: "none", border: "none", cursor: "pointer", padding: "4px 12px", textAlign: "left", fontFamily: "'DM Sans', sans-serif" }}>Reset Data</button>
+        </div>
       </nav>}
 
       {/* Content */}
@@ -1133,7 +1143,6 @@ function ReportsView({ data }) {
 // ═══════════════════════════════════════
 function SettingsView({ settings, onSave }) {
   const [form, setForm] = useState({ ...settings });
-  const [showKey, setShowKey] = useState(false);
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
   return <div>
     <h1 style={{ margin: "0 0 20px", fontFamily: "'Fraunces', serif", fontSize: 24, fontWeight: 700 }}>Settings</h1>
@@ -1142,30 +1151,18 @@ function SettingsView({ settings, onSave }) {
       <h3 style={{ margin: "0 0 4px", fontFamily: "'Fraunces', serif", fontSize: 16, fontWeight: 600 }}>Company Information</h3>
       <p style={{ fontSize: 12, color: theme.textMuted, margin: "0 0 14px" }}>Appears on your PDF invoices and emails.</p>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-        <Input label="Company Name" value={form.companyName || ""} onChange={e => set("companyName", e.target.value)} placeholder="DakJen Creative LLC" />
+        <Input label="Company Name" value={form.companyName || ""} onChange={e => set("companyName", e.target.value)} placeholder="BaDjR Tech" />
         <Input label="Phone" value={form.companyPhone || ""} onChange={e => set("companyPhone", e.target.value)} placeholder="(555) 123-4567" />
       </div>
       <div style={{ marginTop: 12 }}><Input label="Address" value={form.companyAddress || ""} onChange={e => set("companyAddress", e.target.value)} placeholder="123 Main St, Washington, DC" /></div>
     </div>
 
     <div style={{ background: theme.surface, borderRadius: theme.radius, border: `1px solid ${theme.borderLight}`, padding: "20px 24px", marginBottom: 16 }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
-        <h3 style={{ margin: 0, fontFamily: "'Fraunces', serif", fontSize: 16, fontWeight: 600 }}>SendGrid Email Integration</h3>
-        {form.sendgridApiKey && <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 10, background: theme.successLight, color: theme.success, fontWeight: 600 }}>Connected</span>}
-      </div>
-      <p style={{ fontSize: 12, color: theme.textMuted, margin: "4px 0 14px" }}>Emails invoices as beautifully formatted HTML with a PDF attachment. Get your API key from <span style={{ color: theme.blue, fontWeight: 500 }}>app.sendgrid.com → Settings → API Keys</span>. Make sure your sender email is verified.</p>
-      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-        <div>
-          <label style={{ fontSize: 12, fontWeight: 500, color: theme.textSecondary, fontFamily: "'DM Sans', sans-serif", display: "block", marginBottom: 4 }}>SendGrid API Key</label>
-          <div style={{ display: "flex", gap: 6 }}>
-            <input type={showKey ? "text" : "password"} value={form.sendgridApiKey || ""} onChange={e => set("sendgridApiKey", e.target.value)} placeholder="SG.xxxxxxxx..." style={{ flex: 1, padding: "8px 12px", border: `1px solid ${theme.border}`, borderRadius: theme.radiusSm, fontSize: 13, fontFamily: "'DM Sans', sans-serif", outline: "none", background: theme.surface, color: theme.text }} />
-            <Btn variant="ghost" size="sm" onClick={() => setShowKey(!showKey)}>{showKey ? "Hide" : "Show"}</Btn>
-          </div>
-        </div>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-          <Input label="Sender Email (must be verified in SendGrid)" value={form.senderEmail || ""} onChange={e => set("senderEmail", e.target.value)} placeholder="invoices@yourcompany.com" />
-          <Input label="Sender Name" value={form.senderName || ""} onChange={e => set("senderName", e.target.value)} placeholder="DakJen Creative" />
-        </div>
+      <h3 style={{ margin: "0 0 4px", fontFamily: "'Fraunces', serif", fontSize: 16, fontWeight: 600 }}>Email Sender</h3>
+      <p style={{ fontSize: 12, color: theme.textMuted, margin: "0 0 14px" }}>The From address for invoice emails. Must be a verified sender in your SendGrid account.</p>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+        <Input label="Sender Email" value={form.senderEmail || ""} onChange={e => set("senderEmail", e.target.value)} placeholder="invoices@badjrtech.com" />
+        <Input label="Sender Name" value={form.senderName || ""} onChange={e => set("senderName", e.target.value)} placeholder="BaDjR Tech" />
       </div>
     </div>
 
