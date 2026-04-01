@@ -563,6 +563,19 @@ export default function InvoicingPlatform() {
   }));
 
   const deleteInvoice = (id) => update("invoices", data.invoices.filter(i => i.id !== id));
+
+  const markInstallmentPaid = (invoiceId, installmentId) => {
+    const today_ = today();
+    update("invoices", data.invoices.map(inv => {
+      if (inv.id !== invoiceId) return inv;
+      const installments = (inv.installments || []).map(inst =>
+        inst.id === installmentId ? { ...inst, status: "paid", paidAt: today_ } : inst
+      );
+      const amountPaid = installments.filter(i => i.status === "paid").reduce((s, i) => s + i.amount, 0);
+      const allPaid = installments.length > 0 && installments.every(i => i.status === "paid");
+      return { ...inv, installments, amountPaid, status: allPaid ? "paid" : amountPaid > 0 ? "partial" : inv.status };
+    }));
+  };
   const saveSettings = (s) => { update("settings", s); showToast("Settings saved"); };
 
   // PDF + Email handlers
@@ -635,7 +648,7 @@ export default function InvoicingPlatform() {
       <main style={{ flex: 1, padding: isMobile ? "16px 14px" : "24px 28px", paddingBottom: isMobile ? 80 : undefined, maxWidth: isMobile ? "100%" : 960, width: "100%", overflowY: "auto" }}>
         {page === "dashboard" && <DashboardView {...{ data, totalRevenue, outstanding, overdueCount, draftCount, setPage, setModal, updateInvoiceStatus, handleDownloadPDF, handleSendEmail }} />}
         {page === "invoices" && !viewInvoice && <InvoicesView {...{ data, setModal, setEditItem, setViewInvoice, deleteInvoice, updateInvoiceStatus, handleDownloadPDF, handleSendEmail, handleSendOverdue }} />}
-        {page === "invoices" && viewInvoice && <InvoiceDetailView invoice={data.invoices.find(i => i.id === viewInvoice.id) || viewInvoice} data={data} onBack={() => setViewInvoice(null)} updateStatus={updateInvoiceStatus} markPartial={markPartialPayment} handleDownloadPDF={handleDownloadPDF} handleSendEmail={handleSendEmail} handleSendOverdue={handleSendOverdue} />}
+        {page === "invoices" && viewInvoice && <InvoiceDetailView invoice={data.invoices.find(i => i.id === viewInvoice.id) || viewInvoice} data={data} onBack={() => setViewInvoice(null)} updateStatus={updateInvoiceStatus} markPartial={markPartialPayment} markInstallmentPaid={markInstallmentPaid} handleDownloadPDF={handleDownloadPDF} handleSendEmail={handleSendEmail} handleSendOverdue={handleSendOverdue} />}
         {page === "clients" && <ClientsView {...{ data, setModal, setEditItem, deleteClient }} />}
         {page === "projects" && <ProjectsView {...{ data, setModal, setEditItem, deleteProject, saveProject }} />}
         {page === "services" && <ServicesView {...{ data, setModal, setEditItem, deleteService }} />}
@@ -747,7 +760,7 @@ function InvoicesView({ data, setModal, setEditItem, setViewInvoice, deleteInvoi
   </div>;
 }
 
-function InvoiceDetailView({ invoice: inv, data, onBack, updateStatus, markPartial, handleDownloadPDF, handleSendEmail, handleSendOverdue }) {
+function InvoiceDetailView({ invoice: inv, data, onBack, updateStatus, markPartial, markInstallmentPaid, handleDownloadPDF, handleSendEmail, handleSendOverdue }) {
   const [payAmount, setPayAmount] = useState("");
   const [sending, setSending] = useState(false);
   const [sendingReminder, setSendingReminder] = useState(false);
@@ -816,11 +829,36 @@ function InvoiceDetailView({ invoice: inv, data, onBack, updateStatus, markParti
 
       {inv.notes && <div style={{ padding: "14px 16px", background: theme.surfaceAlt, borderRadius: theme.radiusSm, fontSize: 13, color: theme.textSecondary, marginBottom: 20 }}><span style={{ fontWeight: 600, fontSize: 11, textTransform: "uppercase", letterSpacing: "0.05em", display: "block", marginBottom: 4 }}>Notes</span>{inv.notes}</div>}
 
-      {inv.status !== "paid" && <div style={{ display: "flex", gap: 8, alignItems: "center", paddingTop: 16, borderTop: `1px solid ${theme.borderLight}`, flexWrap: "wrap" }}>
-        <span style={{ fontSize: 12, color: theme.textMuted, fontWeight: 500 }}>Record partial payment:</span>
-        <input type="number" placeholder="Amount" value={payAmount} onChange={e => setPayAmount(e.target.value)} style={{ width: 110, padding: "7px 10px", border: `1px solid ${theme.border}`, borderRadius: theme.radiusSm, fontSize: 13, fontFamily: "'DM Sans', sans-serif" }} />
-        <Btn variant="secondary" size="sm" onClick={() => { const amt = parseFloat(payAmount); if (amt > 0) { markPartial(inv.id, amt); setPayAmount(""); } }}>Record Payment</Btn>
-      </div>}
+      {(inv.installments || []).length > 0 ? (
+        <div style={{ paddingTop: 16, borderTop: `1px solid ${theme.borderLight}` }}>
+          <div style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em", color: theme.textMuted, marginBottom: 12 }}>Payment Schedule</div>
+          <div style={{ display: "grid", gap: 8 }}>
+            {(inv.installments || []).map((inst, i) => (
+              <div key={inst.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 14px", background: inst.status === "paid" ? `${theme.success}12` : theme.surfaceAlt, borderRadius: theme.radiusSm, border: `1px solid ${inst.status === "paid" ? theme.success + "40" : theme.borderLight}` }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <div style={{ width: 22, height: 22, borderRadius: "50%", background: inst.status === "paid" ? theme.success : theme.border, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                    {inst.status === "paid" ? <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3"><polyline points="20 6 9 17 4 12"/></svg> : <span style={{ fontSize: 10, fontWeight: 700, color: theme.textMuted }}>{i + 1}</span>}
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 600 }}>Payment {i + 1} — {fmt(inst.amount)}</div>
+                    <div style={{ fontSize: 11, color: theme.textSecondary }}>Due {fmtDate(inst.dueDate)}{inst.paidAt ? ` · Paid ${fmtDate(inst.paidAt)}` : ""}</div>
+                  </div>
+                </div>
+                {inst.status !== "paid" && inv.status !== "paid" && (
+                  <Btn size="sm" variant="success" onClick={() => markInstallmentPaid(inv.id, inst.id)}>Mark Paid</Btn>
+                )}
+                {inst.status === "paid" && <span style={{ fontSize: 11, fontWeight: 600, color: theme.success }}>PAID</span>}
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : inv.status !== "paid" ? (
+        <div style={{ display: "flex", gap: 8, alignItems: "center", paddingTop: 16, borderTop: `1px solid ${theme.borderLight}`, flexWrap: "wrap" }}>
+          <span style={{ fontSize: 12, color: theme.textMuted, fontWeight: 500 }}>Record partial payment:</span>
+          <input type="number" placeholder="Amount" value={payAmount} onChange={e => setPayAmount(e.target.value)} style={{ width: 110, padding: "7px 10px", border: `1px solid ${theme.border}`, borderRadius: theme.radiusSm, fontSize: 13, fontFamily: "'DM Sans', sans-serif" }} />
+          <Btn variant="secondary" size="sm" onClick={() => { const amt = parseFloat(payAmount); if (amt > 0) { markPartial(inv.id, amt); setPayAmount(""); } }}>Record Payment</Btn>
+        </div>
+      ) : null}
     </div>
   </div>;
 }
@@ -1255,8 +1293,24 @@ function ProjectForm({ item, onSave, onCancel }) {
 }
 
 
+function generateInstallments(total, numPayments, interval, startDate) {
+  if (!startDate || !total || numPayments < 2) return [];
+  const base = Math.floor((total / numPayments) * 100) / 100;
+  const last = Math.round((total - base * (numPayments - 1)) * 100) / 100;
+  const result = [];
+  let d = new Date(startDate + "T00:00:00");
+  for (let i = 0; i < numPayments; i++) {
+    result.push({ id: genId(), amount: i === numPayments - 1 ? last : base, dueDate: d.toISOString().split("T")[0], status: "pending", paidAt: null });
+    if (interval === "monthly") d = new Date(d.getFullYear(), d.getMonth() + 1, d.getDate());
+    else if (interval === "biweekly") d = new Date(d.getTime() + 14 * 86400000);
+    else d = new Date(d.getTime() + 7 * 86400000);
+  }
+  return result;
+}
+
 function InvoiceForm({ item, data, onSave, onCancel }) {
-  const [form, setForm] = useState({ clientId: "", clientName: "", clientEmail: "", clientPhone: "", clientAddress: "", projectId: "", dueDate: "", notes: "", items: [{ description: "", qty: 1, rate: 0 }], ...item });
+  const hasExistingInstallments = (item?.installments || []).length > 0;
+  const [form, setForm] = useState({ clientId: "", clientName: "", clientEmail: "", clientPhone: "", clientAddress: "", projectId: "", dueDate: "", notes: "", items: [{ description: "", qty: 1, rate: 0 }], installments: [], paymentPlan: hasExistingInstallments, planPayments: 3, planInterval: "monthly", planStartDate: "", ...item });
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
   const setLI = (i, k, v) => { const items = [...form.items]; items[i] = { ...items[i], [k]: v }; set("items", items); };
   const addLine = () => set("items", [...form.items, { description: "", qty: 1, rate: 0 }]);
@@ -1268,6 +1322,16 @@ function InvoiceForm({ item, data, onSave, onCancel }) {
     const cl = data.clients.find(c => c.id === id);
     if (cl) setForm(f => ({ ...f, clientId: cl.id, clientName: cl.name, clientEmail: cl.email, clientPhone: cl.phone, clientAddress: cl.address }));
     else setForm(f => ({ ...f, clientId: "", clientName: "", clientEmail: "", clientPhone: "", clientAddress: "" }));
+  };
+  const previewInstallments = !hasExistingInstallments && form.paymentPlan && form.planStartDate && total > 0
+    ? generateInstallments(total, form.planPayments, form.planInterval, form.planStartDate)
+    : [];
+  const handleSave = () => {
+    if (!form.clientId) return;
+    const installments = (!hasExistingInstallments && form.paymentPlan)
+      ? generateInstallments(total, form.planPayments, form.planInterval, form.planStartDate)
+      : (form.installments || []);
+    onSave({ ...form, installments });
   };
   return <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
     <div style={{ background: theme.surfaceAlt, borderRadius: theme.radiusSm, padding: "12px 14px", border: `1px solid ${theme.borderLight}` }}>
@@ -1290,7 +1354,46 @@ function InvoiceForm({ item, data, onSave, onCancel }) {
       <Btn size="sm" variant="secondary" icon={Icons.plus} onClick={addLine} style={{ marginTop: 4 }}>Add Line</Btn>
     </div>
     <Textarea label="Notes" value={form.notes} onChange={e => set("notes", e.target.value)} placeholder="Payment terms, thank you note, etc." />
-    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 0", borderTop: `1px solid ${theme.borderLight}` }}><div style={{ fontFamily: "'Fraunces', serif", fontSize: 18, fontWeight: 700 }}>Total: {fmt(total)}</div><div style={{ display: "flex", gap: 8 }}><Btn variant="secondary" onClick={onCancel}>Cancel</Btn><Btn onClick={() => form.clientId && onSave(form)}>Save Invoice</Btn></div></div>
+
+    {/* Payment Plan */}
+    {hasExistingInstallments
+      ? <div style={{ background: theme.surfaceAlt, borderRadius: theme.radiusSm, padding: "10px 14px", border: `1px solid ${theme.borderLight}`, fontSize: 12, color: theme.textSecondary }}>Payment plan active — mark installments paid from the invoice detail view.</div>
+      : <div style={{ background: theme.surfaceAlt, borderRadius: theme.radiusSm, padding: "12px 14px", border: `1px solid ${theme.borderLight}` }}>
+          <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", marginBottom: form.paymentPlan ? 14 : 0 }}>
+            <input type="checkbox" checked={form.paymentPlan} onChange={e => set("paymentPlan", e.target.checked)} style={{ accentColor: theme.accent, width: 14, height: 14 }} />
+            <span style={{ fontSize: 13, fontWeight: 600, color: theme.text }}>Set up payment plan</span>
+          </label>
+          {form.paymentPlan && <>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginBottom: 12 }}>
+              <div>
+                <label style={{ fontSize: 11, fontWeight: 600, color: theme.textSecondary, textTransform: "uppercase", letterSpacing: "0.05em", display: "block", marginBottom: 4 }}>Payments</label>
+                <select value={form.planPayments} onChange={e => set("planPayments", parseInt(e.target.value))} style={{ width: "100%", padding: "8px 10px", border: `1px solid ${theme.border}`, borderRadius: theme.radiusSm, fontSize: 13, fontFamily: "'DM Sans', sans-serif", background: theme.surface }}>
+                  {[2, 3, 4, 6, 12].map(n => <option key={n} value={n}>{n} payments</option>)}
+                </select>
+              </div>
+              <div>
+                <label style={{ fontSize: 11, fontWeight: 600, color: theme.textSecondary, textTransform: "uppercase", letterSpacing: "0.05em", display: "block", marginBottom: 4 }}>Interval</label>
+                <select value={form.planInterval} onChange={e => set("planInterval", e.target.value)} style={{ width: "100%", padding: "8px 10px", border: `1px solid ${theme.border}`, borderRadius: theme.radiusSm, fontSize: 13, fontFamily: "'DM Sans', sans-serif", background: theme.surface }}>
+                  <option value="monthly">Monthly</option>
+                  <option value="biweekly">Bi-weekly</option>
+                  <option value="weekly">Weekly</option>
+                </select>
+              </div>
+              <Input label="First Payment Date" type="date" value={form.planStartDate} onChange={e => set("planStartDate", e.target.value)} />
+            </div>
+            {previewInstallments.length > 0 && <div>
+              <div style={{ fontSize: 11, fontWeight: 600, color: theme.textMuted, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 8 }}>Schedule Preview</div>
+              {previewInstallments.map((inst, i) => <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: `1px solid ${theme.borderLight}`, fontSize: 13 }}>
+                <span style={{ color: theme.textSecondary }}>Payment {i + 1} · {fmtDate(inst.dueDate)}</span>
+                <span style={{ fontWeight: 600 }}>{fmt(inst.amount)}</span>
+              </div>)}
+            </div>}
+            {form.paymentPlan && !form.planStartDate && <div style={{ fontSize: 12, color: theme.textMuted }}>Set a first payment date to preview the schedule.</div>}
+          </>}
+        </div>
+    }
+
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 0", borderTop: `1px solid ${theme.borderLight}` }}><div style={{ fontFamily: "'Fraunces', serif", fontSize: 18, fontWeight: 700 }}>Total: {fmt(total)}</div><div style={{ display: "flex", gap: 8 }}><Btn variant="secondary" onClick={onCancel}>Cancel</Btn><Btn onClick={handleSave}>Save Invoice</Btn></div></div>
   </div>;
 }
 
