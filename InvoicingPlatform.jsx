@@ -546,7 +546,7 @@ export default function InvoicingPlatform() {
       if (validPages.includes(p)) setPage(p);
     };
     window.addEventListener("hashchange", onHash);
-    fetch("/api/data").then(r => r.ok ? r.json() : null).then(saved => {
+    fetch("/api/data", { cache: "no-store" }).then(r => r.ok ? r.json() : null).then(saved => {
       if (saved && Object.keys(saved).length > 0) {
         setData({ ...defaultData, ...saved, settings: { ...defaultData.settings, ...(saved.settings || {}) } });
       }

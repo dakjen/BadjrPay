@@ -9,7 +9,7 @@ export async function GET() {
   try {
     await initDb();
     const data = await getAppData();
-    return NextResponse.json(data);
+    return NextResponse.json(data, { headers: { "Cache-Control": "no-store" } });
   } catch (e) {
     return NextResponse.json({ error: e.message }, { status: 500 });
   }
