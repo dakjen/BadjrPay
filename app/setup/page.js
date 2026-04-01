@@ -49,7 +49,7 @@ export default function SetupPage() {
         <form onSubmit={handleSubmit} style={{ background: "#fff", borderRadius: 14, border: "1px solid #E2DDD3", padding: 28, boxShadow: "0 4px 12px rgba(0,0,0,0.06)" }}>
           {error && <div style={{ background: "#FDE8E7", color: "#B5342B", padding: "10px 14px", borderRadius: 8, fontSize: 13, marginBottom: 16 }}>{error}</div>}
           {[
-            { label: "Full Name", key: "name", type: "text", placeholder: "Dakota Jennifer" },
+            { label: "Full Name", key: "name", type: "text", placeholder: "Dakotah Jennifer" },
             { label: "Email", key: "email", type: "email", placeholder: "you@example.com" },
             { label: "Password", key: "password", type: "password", placeholder: "At least 8 characters" },
             { label: "Confirm Password", key: "confirm", type: "password", placeholder: "••••••••" },
