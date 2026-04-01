@@ -554,16 +554,24 @@ export default function InvoicingPlatform() {
     return () => window.removeEventListener("hashchange", onHash);
   }, []);
 
+  const doFetch = (newData) => {
+    fetch("/api/data", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(newData) })
+      .then(async r => { if (!r.ok) { const body = await r.json().catch(() => ({})); showToast(`Save failed: ${body.error || r.status}`, "error"); } })
+      .catch(() => showToast("Save failed — check your internet connection", "error"));
+  };
+
   const persistData = (newData) => {
     if (saveTimer.current) clearTimeout(saveTimer.current);
-    saveTimer.current = setTimeout(() => {
-      fetch("/api/data", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(newData) })
-        .then(async r => { if (!r.ok) { const body = await r.json().catch(() => ({})); showToast(`Save failed: ${body.error || r.status}`, "error"); } })
-        .catch(() => showToast("Save failed — check your internet connection", "error"));
-    }, 800);
+    saveTimer.current = setTimeout(() => doFetch(newData), 800);
+  };
+
+  const persistNow = (newData) => {
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    doFetch(newData);
   };
 
   const update = (key, val) => setData(d => { const newData = { ...d, [key]: val }; persistData(newData); return newData; });
+  const updateNow = (key, val) => setData(d => { const newData = { ...d, [key]: val }; persistNow(newData); return newData; });
   const navigate = (p) => { setPage(p); setViewInvoice(null); window.location.hash = p; };
   const showToast = (message, type = "success") => setToast({ message, type });
 
@@ -585,35 +593,35 @@ export default function InvoicingPlatform() {
   ];
 
   // CRUD
-  const saveClient = (cl) => { if (cl.id) update("clients", data.clients.map(c => c.id === cl.id ? cl : c)); else update("clients", [...data.clients, { ...cl, id: genId() }]); setModal(null); setEditItem(null); };
+  const saveClient = (cl) => { if (cl.id) updateNow("clients", data.clients.map(c => c.id === cl.id ? cl : c)); else updateNow("clients", [...data.clients, { ...cl, id: genId() }]); setModal(null); setEditItem(null); };
   const deleteClient = (id) => update("clients", data.clients.filter(c => c.id !== id));
-  const saveCategory = (cat) => { if (cat.id) update("categories", data.categories.map(c => c.id === cat.id ? cat : c)); else update("categories", [...data.categories, { ...cat, id: genId() }]); setModal(null); setEditItem(null); };
+  const saveCategory = (cat) => { if (cat.id) updateNow("categories", data.categories.map(c => c.id === cat.id ? cat : c)); else updateNow("categories", [...data.categories, { ...cat, id: genId() }]); setModal(null); setEditItem(null); };
   const deleteCategory = (id) => update("categories", data.categories.filter(c => c.id !== id));
-  const saveService = (svc) => { if (svc.id) update("services", data.services.map(s => s.id === svc.id ? svc : s)); else update("services", [...data.services, { ...svc, id: genId() }]); setModal(null); setEditItem(null); };
+  const saveService = (svc) => { if (svc.id) updateNow("services", data.services.map(s => s.id === svc.id ? svc : s)); else updateNow("services", [...data.services, { ...svc, id: genId() }]); setModal(null); setEditItem(null); };
   const deleteService = (id) => update("services", data.services.filter(s => s.id !== id));
-  const saveProject = (proj) => { if (proj.id) update("projects", data.projects.map(p => p.id === proj.id ? proj : p)); else update("projects", [...data.projects, { ...proj, id: genId(), status: "active", createdAt: today() }]); setModal(null); setEditItem(null); };
+  const saveProject = (proj) => { if (proj.id) updateNow("projects", data.projects.map(p => p.id === proj.id ? proj : p)); else updateNow("projects", [...data.projects, { ...proj, id: genId(), status: "active", createdAt: today() }]); setModal(null); setEditItem(null); };
   const deleteProject = (id) => update("projects", data.projects.filter(p => p.id !== id));
   const saveInvoice = (inv) => {
     const total = (inv.items || []).reduce((s, li) => s + ((parseFloat(li.qty) || 0) * (parseFloat(li.rate) || 0)), 0);
     const newInv = { ...inv, total, updatedAt: today() };
-    if (inv.id) update("invoices", data.invoices.map(i => i.id === inv.id ? newInv : i));
-    else { const num = `INV-${String(data.invoices.length + 1).padStart(4, "0")}`; update("invoices", [...data.invoices, { ...newInv, id: genId(), number: num, status: "draft", amountPaid: 0, createdAt: today() }]); }
+    if (inv.id) updateNow("invoices", data.invoices.map(i => i.id === inv.id ? newInv : i));
+    else { const num = `INV-${String(data.invoices.length + 1).padStart(4, "0")}`; updateNow("invoices", [...data.invoices, { ...newInv, id: genId(), number: num, status: "draft", amountPaid: 0, createdAt: today() }]); }
     setModal(null); setEditItem(null);
   };
 
-  const updateInvoiceStatus = (id, status) => update("invoices", data.invoices.map(i => i.id === id ? { ...i, status, ...(status === "sent" ? { sentAt: today() } : {}), ...(status === "paid" ? { amountPaid: i.total, paidAt: today() } : {}) } : i));
+  const updateInvoiceStatus = (id, status) => updateNow("invoices", data.invoices.map(i => i.id === id ? { ...i, status, ...(status === "sent" ? { sentAt: today() } : {}), ...(status === "paid" ? { amountPaid: i.total, paidAt: today() } : {}) } : i));
 
-  const markPartialPayment = (id, amount) => update("invoices", data.invoices.map(i => {
+  const markPartialPayment = (id, amount) => updateNow("invoices", data.invoices.map(i => {
     if (i.id !== id) return i;
     const newPaid = (i.amountPaid || 0) + amount;
     return { ...i, amountPaid: newPaid, status: newPaid >= i.total ? "paid" : "partial", ...(newPaid >= i.total ? { paidAt: today() } : {}) };
   }));
 
-  const deleteInvoice = (id) => update("invoices", data.invoices.filter(i => i.id !== id));
+  const deleteInvoice = (id) => updateNow("invoices", data.invoices.filter(i => i.id !== id));
 
   const markInstallmentPaid = (invoiceId, installmentId) => {
     const today_ = today();
-    update("invoices", data.invoices.map(inv => {
+    updateNow("invoices", data.invoices.map(inv => {
       if (inv.id !== invoiceId) return inv;
       const installments = (inv.installments || []).map(inst =>
         inst.id === installmentId ? { ...inst, status: "paid", paidAt: today_ } : inst
@@ -623,7 +631,7 @@ export default function InvoicingPlatform() {
       return { ...inv, installments, amountPaid, status: allPaid ? "paid" : amountPaid > 0 ? "partial" : inv.status };
     }));
   };
-  const saveSettings = (s) => { update("settings", s); showToast("Settings saved"); };
+  const saveSettings = (s) => { updateNow("settings", s); showToast("Settings saved"); };
 
   // PDF + Email handlers
   const handleDownloadPDF = async (inv) => {
