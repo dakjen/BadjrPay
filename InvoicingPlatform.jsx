@@ -1,5 +1,16 @@
 import { useState, useEffect } from "react";
 
+function useIsMobile() {
+  const [isMobile, setIsMobile] = useState(false);
+  useEffect(() => {
+    const check = () => setIsMobile(window.innerWidth < 768);
+    check();
+    window.addEventListener("resize", check);
+    return () => window.removeEventListener("resize", check);
+  }, []);
+  return isMobile;
+}
+
 const STORAGE_KEY = "invoicing_platform_data";
 
 // ─── Fonts (loaded safely) ───
@@ -41,7 +52,7 @@ const defaultData = {
     { id: genId(), name: "Development", color: "#2B5EA7" },
     { id: genId(), name: "Consulting", color: "#C4841D" },
   ],
-  services: [], projects: [], invoices: [], clients: [],
+  services: [], projects: [], invoices: [],
   settings: { sendgridApiKey: "", senderEmail: "", senderName: "", companyName: "", companyAddress: "", companyPhone: "" },
 };
 
@@ -102,7 +113,7 @@ function Textarea({ label, ...props }) {
 
 function Modal({ open, onClose, title, children, width = 520 }) {
   if (!open) return null;
-  return <div style={{ position: "fixed", inset: 0, zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.35)", backdropFilter: "blur(4px)" }} onClick={onClose}><div onClick={e => e.stopPropagation()} style={{ background: theme.surface, borderRadius: theme.radiusLg, width: "90%", maxWidth: width, maxHeight: "85vh", overflow: "auto", boxShadow: theme.shadowLg, animation: "modalIn 0.2s ease" }}><div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "16px 20px", borderBottom: `1px solid ${theme.borderLight}` }}><h3 style={{ margin: 0, fontSize: 16, fontFamily: "'Fraunces', serif", fontWeight: 600, color: theme.text }}>{title}</h3><button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", color: theme.textMuted, padding: 4 }}>{Icons.close}</button></div><div style={{ padding: "20px" }}>{children}</div></div></div>;
+  return <div style={{ position: "fixed", inset: 0, zIndex: 1000, display: "flex", alignItems: "flex-end", justifyContent: "center", background: "rgba(0,0,0,0.35)", backdropFilter: "blur(4px)" }} onClick={onClose}><div onClick={e => e.stopPropagation()} style={{ background: theme.surface, borderRadius: `${theme.radiusLg} ${theme.radiusLg} 0 0`, width: "100%", maxWidth: width, maxHeight: "90vh", overflow: "auto", boxShadow: theme.shadowLg, animation: "modalIn 0.2s ease" }}><div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "16px 20px", borderBottom: `1px solid ${theme.borderLight}` }}><h3 style={{ margin: 0, fontSize: 16, fontFamily: "'Fraunces', serif", fontWeight: 600, color: theme.text }}>{title}</h3><button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", color: theme.textMuted, padding: 4 }}>{Icons.close}</button></div><div style={{ padding: "20px" }}>{children}</div></div></div>;
 }
 
 function StatCard({ label, value, icon, color = theme.accent }) {
@@ -482,6 +493,7 @@ function buildSenderConfirmationHTML(invoice, settings) {
 // MAIN APP
 // ═══════════════════════════════════════
 export default function InvoicingPlatform() {
+  const isMobile = useIsMobile();
   const [data, setData] = useState(defaultData);
   const [page, setPage] = useState("dashboard");
   const [modal, setModal] = useState(null);
@@ -521,7 +533,6 @@ export default function InvoicingPlatform() {
     { id: "projects", label: "Projects", icon: Icons.project },
     { id: "services", label: "Services", icon: Icons.service },
     { id: "categories", label: "Categories", icon: Icons.category },
-    { id: "clients", label: "Clients", icon: Icons.user },
     { id: "reports", label: "Reports", icon: Icons.report },
     { id: "settings", label: "Settings", icon: Icons.settings },
   ];
@@ -533,9 +544,6 @@ export default function InvoicingPlatform() {
   const deleteService = (id) => update("services", data.services.filter(s => s.id !== id));
   const saveProject = (proj) => { if (proj.id) update("projects", data.projects.map(p => p.id === proj.id ? proj : p)); else update("projects", [...data.projects, { ...proj, id: genId(), status: "active", createdAt: today() }]); setModal(null); setEditItem(null); };
   const deleteProject = (id) => update("projects", data.projects.filter(p => p.id !== id));
-  const saveClient = (client) => { if (client.id) update("clients", data.clients.map(c => c.id === client.id ? client : c)); else update("clients", [...data.clients, { ...client, id: genId() }]); setModal(null); setEditItem(null); };
-  const deleteClient = (id) => update("clients", data.clients.filter(c => c.id !== id));
-
   const saveInvoice = (inv) => {
     const total = (inv.items || []).reduce((s, li) => s + ((parseFloat(li.qty) || 0) * (parseFloat(li.rate) || 0)), 0);
     const newInv = { ...inv, total, updatedAt: today() };
@@ -557,7 +565,7 @@ export default function InvoicingPlatform() {
 
   // PDF + Email handlers
   const handleDownloadPDF = async (inv) => {
-    const client = data.clients.find(c => c.id === inv.clientId);
+    const client = { email: inv.clientEmail, phone: inv.clientPhone, address: inv.clientAddress };
     try {
       const { pdfUrl, filename } = await generateInvoicePDF(inv, data.settings, client);
       const a = document.createElement("a"); a.href = pdfUrl; a.download = filename; a.click();
@@ -566,26 +574,24 @@ export default function InvoicingPlatform() {
   };
 
   const handleSendEmail = async (inv) => {
-    const client = data.clients.find(c => c.id === inv.clientId);
     if (!data.settings.sendgridApiKey) { showToast("Add your SendGrid API key in Settings first", "error"); setPage("settings"); return; }
-    if (!client?.email) { showToast("This client has no email address. Add one in Clients.", "error"); return; }
+    if (!inv.clientEmail) { showToast("This invoice has no client email. Edit the invoice to add one.", "error"); return; }
     if (!data.settings.senderEmail) { showToast("Set your sender email in Settings first", "error"); setPage("settings"); return; }
     try {
       const remaining = (inv.total || 0) - (inv.amountPaid || 0);
+      const client = { email: inv.clientEmail, phone: inv.clientPhone, address: inv.clientAddress };
       const { pdfBase64, filename } = await generateInvoicePDF(inv, data.settings, client);
       const senderName = data.settings.senderName || data.settings.companyName;
-      // Send invoice to client using Dynamic Template
       const result = await sendInvoiceEmail({
         apiKey: data.settings.sendgridApiKey, senderEmail: data.settings.senderEmail, senderName,
-        recipientEmail: client.email, recipientName: client.name,
+        recipientEmail: inv.clientEmail, recipientName: inv.clientName,
         templateId: SENDGRID_TEMPLATES.newInvoice,
         templateData: { client_name: inv.clientName || "", sender_name: senderName, invoice_number: inv.number, invoice_amount: remaining.toFixed(2), due_date: inv.dueDate ? fmtDate(inv.dueDate) : "—", invoice_link: "" },
         pdfBase64, filename,
       });
       if (result.success) {
         updateInvoiceStatus(inv.id, "sent");
-        showToast(`Invoice emailed to ${client.email}`);
-        // Sender confirmation via Dynamic Template (fire-and-forget)
+        showToast(`Invoice emailed to ${inv.clientEmail}`);
         sendInvoiceEmail({
           apiKey: data.settings.sendgridApiKey, senderEmail: data.settings.senderEmail, senderName,
           recipientEmail: data.settings.senderEmail, recipientName: senderName,
@@ -597,9 +603,8 @@ export default function InvoicingPlatform() {
   };
 
   const handleSendOverdue = async (inv) => {
-    const client = data.clients.find(c => c.id === inv.clientId);
     if (!data.settings.sendgridApiKey) { showToast("Add your SendGrid API key in Settings first", "error"); setPage("settings"); return; }
-    if (!client?.email) { showToast("This client has no email address. Add one in Clients.", "error"); return; }
+    if (!inv.clientEmail) { showToast("This invoice has no client email. Edit the invoice to add one.", "error"); return; }
     if (!data.settings.senderEmail) { showToast("Set your sender email in Settings first", "error"); setPage("settings"); return; }
     try {
       const remaining = (inv.total || 0) - (inv.amountPaid || 0);
@@ -607,11 +612,11 @@ export default function InvoicingPlatform() {
       const daysOverdue = inv.dueDate ? Math.max(0, Math.floor((Date.now() - new Date(inv.dueDate).getTime()) / 86400000)) : 0;
       const result = await sendInvoiceEmail({
         apiKey: data.settings.sendgridApiKey, senderEmail: data.settings.senderEmail, senderName,
-        recipientEmail: client.email, recipientName: client.name,
+        recipientEmail: inv.clientEmail, recipientName: inv.clientName,
         templateId: SENDGRID_TEMPLATES.overdue,
         templateData: { client_name: inv.clientName || "", sender_name: senderName, invoice_number: inv.number, invoice_amount: remaining.toFixed(2), due_date: inv.dueDate ? fmtDate(inv.dueDate) : "—", days_overdue: String(daysOverdue), invoice_link: "" },
       });
-      if (result.success) showToast(`Overdue reminder sent to ${client.email}`);
+      if (result.success) showToast(`Overdue reminder sent to ${inv.clientEmail}`);
       else showToast(`Reminder failed — check your SendGrid config`, "error");
     } catch (e) { showToast(`Email error: ${e.message}`, "error"); }
   };
@@ -622,28 +627,27 @@ export default function InvoicingPlatform() {
 
   return (
     <div style={{ display: "flex", minHeight: "100vh", background: theme.bg, fontFamily: "'DM Sans', sans-serif", color: theme.text }}>
-      <style>{`@keyframes modalIn{from{opacity:0;transform:translateY(10px) scale(0.98)}to{opacity:1;transform:translateY(0) scale(1)}} @keyframes spin{to{transform:rotate(360deg)}} *{box-sizing:border-box} ::-webkit-scrollbar{width:6px} ::-webkit-scrollbar-thumb{background:${theme.border};border-radius:3px} input:focus,select:focus,textarea:focus{border-color:${theme.accent}!important;box-shadow:0 0 0 2px ${theme.accentLight}} button:hover{opacity:0.9} table{border-collapse:collapse} .spin{animation:spin 1s linear infinite}`}</style>
+      <style>{`@keyframes modalIn{from{opacity:0;transform:translateY(10px) scale(0.98)}to{opacity:1;transform:translateY(0) scale(1)}} @keyframes spin{to{transform:rotate(360deg)}} *{box-sizing:border-box} ::-webkit-scrollbar{width:6px} ::-webkit-scrollbar-thumb{background:${theme.border};border-radius:3px} input:focus,select:focus,textarea:focus{border-color:${theme.accent}!important;box-shadow:0 0 0 2px ${theme.accentLight}} button:hover{opacity:0.9} table{border-collapse:collapse} .spin{animation:spin 1s linear infinite} .r-tbl{overflow-x:auto;-webkit-overflow-scrolling:touch} @media(max-width:767px){.r-g{grid-template-columns:1fr!important}}`}</style>
 
       {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
 
-      {/* Sidebar */}
-      <nav style={{ width: 220, background: theme.surface, borderRight: `1px solid ${theme.borderLight}`, display: "flex", flexDirection: "column", padding: "20px 12px", flexShrink: 0, position: "sticky", top: 0, height: "100vh" }}>
+      {/* Sidebar — desktop only */}
+      {!isMobile && <nav style={{ width: 220, background: theme.surface, borderRight: `1px solid ${theme.borderLight}`, display: "flex", flexDirection: "column", padding: "20px 12px", flexShrink: 0, position: "sticky", top: 0, height: "100vh" }}>
         <div style={{ fontFamily: "'Fraunces', serif", fontSize: 20, fontWeight: 700, color: theme.accent, padding: "4px 12px 20px", letterSpacing: "-0.02em" }}>Badjr-Pay</div>
         <div style={{ display: "flex", flexDirection: "column", gap: 2, flex: 1 }}>
           {navItems.map(n => <button key={n.id} onClick={() => { setPage(n.id); setViewInvoice(null); }} style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 12px", border: "none", borderRadius: theme.radiusSm, cursor: "pointer", background: page === n.id ? theme.accentLight : "transparent", color: page === n.id ? theme.accent : theme.textSecondary, fontWeight: page === n.id ? 600 : 400, fontSize: 13, fontFamily: "'DM Sans', sans-serif", transition: "all 0.15s", textAlign: "left" }}>{n.icon}{n.label}</button>)}
         </div>
         <button onClick={resetData} style={{ fontSize: 11, color: theme.textMuted, background: "none", border: "none", cursor: "pointer", padding: "8px 12px", textAlign: "left", fontFamily: "'DM Sans', sans-serif" }}>Reset Data</button>
-      </nav>
+      </nav>}
 
       {/* Content */}
-      <main style={{ flex: 1, padding: "24px 28px", maxWidth: 960, overflowY: "auto" }}>
+      <main style={{ flex: 1, padding: isMobile ? "16px 14px" : "24px 28px", paddingBottom: isMobile ? 80 : undefined, maxWidth: isMobile ? "100%" : 960, width: "100%", overflowY: "auto" }}>
         {page === "dashboard" && <DashboardView {...{ data, totalRevenue, outstanding, overdueCount, draftCount, setPage, setModal, updateInvoiceStatus, handleDownloadPDF, handleSendEmail }} />}
         {page === "invoices" && !viewInvoice && <InvoicesView {...{ data, setModal, setEditItem, setViewInvoice, deleteInvoice, updateInvoiceStatus, handleDownloadPDF, handleSendEmail, handleSendOverdue }} />}
         {page === "invoices" && viewInvoice && <InvoiceDetailView invoice={data.invoices.find(i => i.id === viewInvoice.id) || viewInvoice} data={data} onBack={() => setViewInvoice(null)} updateStatus={updateInvoiceStatus} markPartial={markPartialPayment} handleDownloadPDF={handleDownloadPDF} handleSendEmail={handleSendEmail} handleSendOverdue={handleSendOverdue} />}
         {page === "projects" && <ProjectsView {...{ data, setModal, setEditItem, deleteProject, saveProject }} />}
         {page === "services" && <ServicesView {...{ data, setModal, setEditItem, deleteService }} />}
         {page === "categories" && <CategoriesView {...{ data, setModal, setEditItem, deleteCategory }} />}
-        {page === "clients" && <ClientsView {...{ data, setModal, setEditItem, deleteClient }} />}
         {page === "reports" && <ReportsView data={data} />}
         {page === "settings" && <SettingsView settings={data.settings} onSave={saveSettings} />}
       </main>
@@ -651,9 +655,16 @@ export default function InvoicingPlatform() {
       {/* Modals */}
       <Modal open={modal === "category"} onClose={() => { setModal(null); setEditItem(null); }} title={editItem ? "Edit Category" : "New Category"}><CategoryForm item={editItem} onSave={saveCategory} onCancel={() => { setModal(null); setEditItem(null); }} /></Modal>
       <Modal open={modal === "service"} onClose={() => { setModal(null); setEditItem(null); }} title={editItem ? "Edit Service" : "New Service"}><ServiceForm item={editItem} categories={data.categories} onSave={saveService} onCancel={() => { setModal(null); setEditItem(null); }} /></Modal>
-      <Modal open={modal === "project"} onClose={() => { setModal(null); setEditItem(null); }} title={editItem ? "Edit Project" : "New Project"}><ProjectForm item={editItem} clients={data.clients} onSave={saveProject} onCancel={() => { setModal(null); setEditItem(null); }} /></Modal>
-      <Modal open={modal === "client"} onClose={() => { setModal(null); setEditItem(null); }} title={editItem ? "Edit Client" : "New Client"}><ClientForm item={editItem} onSave={saveClient} onCancel={() => { setModal(null); setEditItem(null); }} /></Modal>
+      <Modal open={modal === "project"} onClose={() => { setModal(null); setEditItem(null); }} title={editItem ? "Edit Project" : "New Project"}><ProjectForm item={editItem} onSave={saveProject} onCancel={() => { setModal(null); setEditItem(null); }} /></Modal>
       <Modal open={modal === "invoice"} onClose={() => { setModal(null); setEditItem(null); }} title={editItem ? "Edit Invoice" : "New Invoice"} width={640}><InvoiceForm item={editItem} data={data} onSave={saveInvoice} onCancel={() => { setModal(null); setEditItem(null); }} /></Modal>
+
+      {/* Bottom nav — mobile only */}
+      {isMobile && <nav style={{ position: "fixed", bottom: 0, left: 0, right: 0, zIndex: 200, background: theme.surface, borderTop: `1px solid ${theme.borderLight}`, display: "flex", overflowX: "auto", paddingBottom: "env(safe-area-inset-bottom)" }}>
+        {navItems.map(n => <button key={n.id} onClick={() => { setPage(n.id); setViewInvoice(null); }} style={{ flex: "0 0 auto", display: "flex", flexDirection: "column", alignItems: "center", gap: 2, padding: "8px 12px", border: "none", background: "transparent", color: page === n.id ? theme.accent : theme.textMuted, fontSize: 9, fontFamily: "'DM Sans', sans-serif", cursor: "pointer", minWidth: 56, fontWeight: page === n.id ? 600 : 400 }}>
+          <span style={{ color: page === n.id ? theme.accent : theme.textMuted }}>{n.icon}</span>
+          {n.label}
+        </button>)}
+      </nav>}
     </div>
   );
 }
@@ -747,7 +758,6 @@ function InvoiceDetailView({ invoice: inv, data, onBack, updateStatus, markParti
   const [sending, setSending] = useState(false);
   const [sendingReminder, setSendingReminder] = useState(false);
   const remaining = (inv.total || 0) - (inv.amountPaid || 0);
-  const client = data.clients.find(c => c.id === inv.clientId);
   const project = data.projects.find(p => p.id === inv.projectId);
   const onSend = async () => { setSending(true); await handleSendEmail(inv); setSending(false); };
   const onSendReminder = async () => { setSendingReminder(true); await handleSendOverdue(inv); setSendingReminder(false); };
@@ -777,9 +787,9 @@ function InvoiceDetailView({ invoice: inv, data, onBack, updateStatus, markParti
         <div>
           <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: "0.05em", color: theme.textMuted, marginBottom: 6, fontWeight: 600 }}>Bill To</div>
           <div style={{ fontWeight: 600 }}>{inv.clientName || "-"}</div>
-          {client?.email && <div style={{ fontSize: 13, color: theme.textSecondary }}>{client.email}</div>}
-          {client?.phone && <div style={{ fontSize: 13, color: theme.textSecondary }}>{client.phone}</div>}
-          {client?.address && <div style={{ fontSize: 13, color: theme.textSecondary, whiteSpace: "pre-line" }}>{client.address}</div>}
+          {inv.clientEmail && <div style={{ fontSize: 13, color: theme.textSecondary }}>{inv.clientEmail}</div>}
+          {inv.clientPhone && <div style={{ fontSize: 13, color: theme.textSecondary }}>{inv.clientPhone}</div>}
+          {inv.clientAddress && <div style={{ fontSize: 13, color: theme.textSecondary, whiteSpace: "pre-line" }}>{inv.clientAddress}</div>}
         </div>
         <div style={{ textAlign: "right" }}>
           <div style={{ fontSize: 13, color: theme.textSecondary }}>Issued: {inv.createdAt ? fmtDate(inv.createdAt) : "-"}</div>
@@ -826,9 +836,9 @@ function ProjectsView({ data, setModal, setEditItem, deleteProject, saveProject 
     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}><h1 style={{ margin: 0, fontFamily: "'Fraunces', serif", fontSize: 24, fontWeight: 700 }}>Projects</h1><Btn icon={Icons.plus} onClick={() => setModal("project")}>New Project</Btn></div>
     {data.projects.length === 0 ? <div style={{ background: theme.surface, borderRadius: theme.radius, border: `1px solid ${theme.borderLight}` }}><Empty icon={Icons.project} message="No projects yet" action={<Btn size="sm" onClick={() => setModal("project")} icon={Icons.plus}>Create Project</Btn>} /></div> :
       <div style={{ display: "grid", gap: 12 }}>{data.projects.map(p => {
-        const cl = data.clients.find(c => c.id === p.clientId); const ic = data.invoices.filter(i => i.projectId === p.id).length; const pr = data.invoices.filter(i => i.projectId === p.id && i.status === "paid").reduce((s, i) => s + (i.total || 0), 0);
+        const ic = data.invoices.filter(i => i.projectId === p.id).length; const pr = data.invoices.filter(i => i.projectId === p.id && i.status === "paid").reduce((s, i) => s + (i.total || 0), 0);
         return <div key={p.id} style={{ background: theme.surface, borderRadius: theme.radius, border: `1px solid ${theme.borderLight}`, padding: "16px 20px" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}><div><div style={{ fontWeight: 600, fontSize: 15, marginBottom: 4 }}>{p.name}</div>{cl && <div style={{ fontSize: 12, color: theme.textSecondary }}>{cl.name}</div>}{p.description && <div style={{ fontSize: 12, color: theme.textMuted, marginTop: 4 }}>{p.description}</div>}</div><div style={{ display: "flex", alignItems: "center", gap: 8 }}><StatusBadge status={p.status} /><select value={p.status} onChange={e => saveProject({ ...p, status: e.target.value })} style={{ fontSize: 11, border: `1px solid ${theme.border}`, borderRadius: 4, padding: "2px 4px", background: theme.surface, cursor: "pointer" }}><option value="active">Active</option><option value="completed">Completed</option><option value="archived">Archived</option></select><Btn size="sm" variant="ghost" icon={Icons.edit} onClick={() => { setEditItem(p); setModal("project"); }} /><Btn size="sm" variant="ghost" icon={Icons.trash} onClick={() => { if (confirm("Delete?")) deleteProject(p.id); }} style={{ color: theme.danger }} /></div></div>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}><div><div style={{ fontWeight: 600, fontSize: 15, marginBottom: 4 }}>{p.name}</div>{p.clientName && <div style={{ fontSize: 12, color: theme.textSecondary }}>{p.clientName}</div>}{p.description && <div style={{ fontSize: 12, color: theme.textMuted, marginTop: 4 }}>{p.description}</div>}</div><div style={{ display: "flex", alignItems: "center", gap: 8 }}><StatusBadge status={p.status} /><select value={p.status} onChange={e => saveProject({ ...p, status: e.target.value })} style={{ fontSize: 11, border: `1px solid ${theme.border}`, borderRadius: 4, padding: "2px 4px", background: theme.surface, cursor: "pointer" }}><option value="active">Active</option><option value="completed">Completed</option><option value="archived">Archived</option></select><Btn size="sm" variant="ghost" icon={Icons.edit} onClick={() => { setEditItem(p); setModal("project"); }} /><Btn size="sm" variant="ghost" icon={Icons.trash} onClick={() => { if (confirm("Delete?")) deleteProject(p.id); }} style={{ color: theme.danger }} /></div></div>
           <div style={{ display: "flex", gap: 20, marginTop: 12, fontSize: 12, color: theme.textSecondary }}><span>{ic} invoice{ic !== 1 ? "s" : ""}</span><span>Revenue: {fmt(pr)}</span>{p.createdAt && <span>Created {fmtDate(p.createdAt)}</span>}</div>
         </div>;
       })}</div>}
@@ -852,13 +862,6 @@ function CategoriesView({ data, setModal, setEditItem, deleteCategory }) {
   </div>;
 }
 
-function ClientsView({ data, setModal, setEditItem, deleteClient }) {
-  return <div>
-    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}><h1 style={{ margin: 0, fontFamily: "'Fraunces', serif", fontSize: 24, fontWeight: 700 }}>Clients</h1><Btn icon={Icons.plus} onClick={() => setModal("client")}>New Client</Btn></div>
-    {data.clients.length === 0 ? <div style={{ background: theme.surface, borderRadius: theme.radius, border: `1px solid ${theme.borderLight}` }}><Empty icon={Icons.user} message="No clients yet" action={<Btn size="sm" onClick={() => setModal("client")} icon={Icons.plus}>Add Client</Btn>} /></div> :
-      <div style={{ display: "grid", gap: 10 }}>{data.clients.map(c => { const ic = data.invoices.filter(i => i.clientId === c.id).length; const rv = data.invoices.filter(i => i.clientId === c.id && i.status === "paid").reduce((s, i) => s + (i.total || 0), 0); return <div key={c.id} style={{ background: theme.surface, borderRadius: theme.radius, padding: "14px 18px", border: `1px solid ${theme.borderLight}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}><div><div style={{ fontWeight: 600, fontSize: 14 }}>{c.name}</div><div style={{ fontSize: 12, color: theme.textSecondary }}>{c.email || ""}{c.phone ? ` · ${c.phone}` : ""}</div></div><div style={{ display: "flex", alignItems: "center", gap: 16 }}><span style={{ fontSize: 12, color: theme.textMuted }}>{ic} invoices · {fmt(rv)}</span><div style={{ display: "flex", gap: 4 }}><Btn size="sm" variant="ghost" icon={Icons.edit} onClick={() => { setEditItem(c); setModal("client"); }} /><Btn size="sm" variant="ghost" icon={Icons.trash} onClick={() => { if (confirm("Delete?")) deleteClient(c.id); }} style={{ color: theme.danger }} /></div></div></div>; })}</div>}
-  </div>;
-}
 
 // ═══════════════════════════════════════
 // REPORTS VIEW
@@ -916,15 +919,15 @@ function ReportsView({ data }) {
   const clientData = () => {
     const buckets = {};
     paidInvoices.forEach(inv => {
-      const k = inv.clientId || inv.clientName || "Unknown";
-      const name = inv.clientName || data.clients.find(c => c.id === inv.clientId)?.name || "Unknown";
+      const k = inv.clientName || "Unknown";
+      const name = inv.clientName || "Unknown";
       if (!buckets[k]) buckets[k] = { name, revenue: 0, count: 0, outstanding: 0 };
       buckets[k].revenue += inv.total || 0;
       buckets[k].count++;
     });
     allInvoices.filter(i => ["sent", "viewed", "partial"].includes(i.status)).forEach(inv => {
-      const k = inv.clientId || inv.clientName || "Unknown";
-      const name = inv.clientName || data.clients.find(c => c.id === inv.clientId)?.name || "Unknown";
+      const k = inv.clientName || "Unknown";
+      const name = inv.clientName || "Unknown";
       if (!buckets[k]) buckets[k] = { name, revenue: 0, count: 0, outstanding: 0 };
       buckets[k].outstanding += (inv.total || 0) - (inv.amountPaid || 0);
     });
@@ -1203,47 +1206,44 @@ function ServiceForm({ item, categories, onSave, onCancel }) {
   </div>;
 }
 
-function ProjectForm({ item, clients, onSave, onCancel }) {
-  const [form, setForm] = useState({ name: "", description: "", clientId: "", ...item });
+function ProjectForm({ item, onSave, onCancel }) {
+  const [form, setForm] = useState({ name: "", description: "", clientName: "", ...item });
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
   return <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
     <Input label="Project Name" value={form.name} onChange={e => set("name", e.target.value)} placeholder="e.g. Website Redesign" />
+    <Input label="Client Name (optional)" value={form.clientName} onChange={e => set("clientName", e.target.value)} placeholder="Who is this for?" />
     <Textarea label="Description" value={form.description} onChange={e => set("description", e.target.value)} placeholder="Project details..." />
-    <Select label="Client" value={form.clientId} onChange={e => set("clientId", e.target.value)}><option value="">No Client</option>{clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</Select>
     <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 8 }}><Btn variant="secondary" onClick={onCancel}>Cancel</Btn><Btn onClick={() => form.name.trim() && onSave(form)}>Save</Btn></div>
   </div>;
 }
 
-function ClientForm({ item, onSave, onCancel }) {
-  const [form, setForm] = useState({ name: "", email: "", phone: "", address: "", ...item });
-  const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
-  return <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-    <Input label="Client Name" value={form.name} onChange={e => set("name", e.target.value)} placeholder="Acme Corp" />
-    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}><Input label="Email" type="email" value={form.email} onChange={e => set("email", e.target.value)} placeholder="client@email.com" /><Input label="Phone" value={form.phone} onChange={e => set("phone", e.target.value)} placeholder="(555) 123-4567" /></div>
-    <Textarea label="Address" value={form.address} onChange={e => set("address", e.target.value)} placeholder="123 Main St..." />
-    <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 8 }}><Btn variant="secondary" onClick={onCancel}>Cancel</Btn><Btn onClick={() => form.name.trim() && onSave(form)}>Save</Btn></div>
-  </div>;
-}
 
 function InvoiceForm({ item, data, onSave, onCancel }) {
-  const [form, setForm] = useState({ clientId: "", clientName: "", projectId: "", dueDate: "", notes: "", items: [{ description: "", qty: 1, rate: 0 }], ...item });
+  const [form, setForm] = useState({ clientName: "", clientEmail: "", clientPhone: "", clientAddress: "", projectId: "", dueDate: "", notes: "", items: [{ description: "", qty: 1, rate: 0 }], ...item });
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
   const setLI = (i, k, v) => { const items = [...form.items]; items[i] = { ...items[i], [k]: v }; set("items", items); };
   const addLine = () => set("items", [...form.items, { description: "", qty: 1, rate: 0 }]);
   const removeLine = (i) => set("items", form.items.filter((_, idx) => idx !== i));
   const addSvc = (svcId) => { const svc = data.services.find(s => s.id === svcId); if (svc) set("items", [...form.items, { description: svc.name, qty: 1, rate: svc.rate || 0 }]); };
-  const selClient = (cId) => { const c = data.clients.find(x => x.id === cId); set("clientId", cId); set("clientName", c?.name || ""); };
   const total = form.items.reduce((s, li) => s + ((parseFloat(li.qty) || 0) * (parseFloat(li.rate) || 0)), 0);
   return <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}><Select label="Client" value={form.clientId} onChange={e => selClient(e.target.value)}><option value="">Select Client</option>{data.clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</Select><Select label="Project (optional)" value={form.projectId} onChange={e => set("projectId", e.target.value)}><option value="">No Project</option>{data.projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</Select></div>
-    {!form.clientId && <Input label="Client Name (manual)" value={form.clientName} onChange={e => set("clientName", e.target.value)} placeholder="Type client name" />}
-    <Input label="Due Date" type="date" value={form.dueDate} onChange={e => set("dueDate", e.target.value)} />
+    <div style={{ background: theme.surfaceAlt, borderRadius: theme.radiusSm, padding: "12px 14px", border: `1px solid ${theme.borderLight}` }}>
+      <div style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em", color: theme.textMuted, marginBottom: 10 }}>Client Info</div>
+      <div className="r-g" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+        <Input label="Client Name *" value={form.clientName} onChange={e => set("clientName", e.target.value)} placeholder="Full name or company" />
+        <Input label="Client Email *" type="email" value={form.clientEmail} onChange={e => set("clientEmail", e.target.value)} placeholder="client@example.com" />
+        <Input label="Phone (optional)" value={form.clientPhone} onChange={e => set("clientPhone", e.target.value)} placeholder="+1 (555) 000-0000" />
+        <Input label="Due Date" type="date" value={form.dueDate} onChange={e => set("dueDate", e.target.value)} />
+      </div>
+      <div style={{ marginTop: 10 }}><Textarea label="Address (optional)" value={form.clientAddress} onChange={e => set("clientAddress", e.target.value)} placeholder="Street, City, State ZIP" /></div>
+    </div>
+    <Select label="Project (optional)" value={form.projectId} onChange={e => set("projectId", e.target.value)}><option value="">No Project</option>{data.projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</Select>
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}><label style={{ fontSize: 12, fontWeight: 600, color: theme.textSecondary, textTransform: "uppercase", letterSpacing: "0.05em" }}>Line Items</label>{data.services.length > 0 && <Select style={{ fontSize: 11, padding: "4px 8px" }} onChange={e => { if (e.target.value) { addSvc(e.target.value); e.target.value = ""; } }}><option value="">+ Add Service</option>{data.services.map(s => <option key={s.id} value={s.id}>{s.name} ({fmt(s.rate)})</option>)}</Select>}</div>
       {form.items.map((li, i) => <div key={i} style={{ display: "grid", gridTemplateColumns: "2fr 60px 100px 30px", gap: 6, marginBottom: 6, alignItems: "end" }}><Input placeholder="Description" value={li.description} onChange={e => setLI(i, "description", e.target.value)} /><Input placeholder="Qty" type="number" value={li.qty} onChange={e => setLI(i, "qty", e.target.value)} /><Input placeholder="Rate" type="number" value={li.rate} onChange={e => setLI(i, "rate", e.target.value)} />{form.items.length > 1 && <button onClick={() => removeLine(i)} style={{ background: "none", border: "none", cursor: "pointer", color: theme.danger, padding: "8px 4px" }}>{Icons.trash}</button>}</div>)}
       <Btn size="sm" variant="secondary" icon={Icons.plus} onClick={addLine} style={{ marginTop: 4 }}>Add Line</Btn>
     </div>
     <Textarea label="Notes" value={form.notes} onChange={e => set("notes", e.target.value)} placeholder="Payment terms, thank you note, etc." />
-    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 0", borderTop: `1px solid ${theme.borderLight}` }}><div style={{ fontFamily: "'Fraunces', serif", fontSize: 18, fontWeight: 700 }}>Total: {fmt(total)}</div><div style={{ display: "flex", gap: 8 }}><Btn variant="secondary" onClick={onCancel}>Cancel</Btn><Btn onClick={() => (form.clientName || form.clientId) && onSave(form)}>Save Invoice</Btn></div></div>
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 0", borderTop: `1px solid ${theme.borderLight}` }}><div style={{ fontFamily: "'Fraunces', serif", fontSize: 18, fontWeight: 700 }}>Total: {fmt(total)}</div><div style={{ display: "flex", gap: 8 }}><Btn variant="secondary" onClick={onCancel}>Cancel</Btn><Btn onClick={() => form.clientName.trim() && onSave(form)}>Save Invoice</Btn></div></div>
   </div>;
 }
