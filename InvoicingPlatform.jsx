@@ -499,25 +499,19 @@ export default function InvoicingPlatform() {
   const [modal, setModal] = useState(null);
   const [editItem, setEditItem] = useState(null);
   const [viewInvoice, setViewInvoice] = useState(null);
-  const [loaded, setLoaded] = useState(false);
   const [toast, setToast] = useState(null);
 
   useEffect(() => {
     loadFonts();
-    (async () => {
-      try {
-        if (window.storage) {
-          const r = await window.storage.get(STORAGE_KEY);
-          if (r?.value) {
-            const p = JSON.parse(r.value);
-            setData({ ...defaultData, ...p, settings: { ...defaultData.settings, ...(p.settings || {}) } });
-          }
-        }
-      } catch {}
-      setLoaded(true);
-    })();
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY);
+      if (saved) {
+        const p = JSON.parse(saved);
+        setData({ ...defaultData, ...p, settings: { ...defaultData.settings, ...(p.settings || {}) } });
+      }
+    } catch {}
   }, []);
-  useEffect(() => { if (!loaded || !window.storage) return; window.storage.set(STORAGE_KEY, JSON.stringify(data)).catch(() => {}); }, [data, loaded]);
+  useEffect(() => { try { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); } catch {} }, [data]);
 
   const update = (key, val) => setData(d => ({ ...d, [key]: val }));
   const showToast = (message, type = "success") => setToast({ message, type });
@@ -621,9 +615,7 @@ export default function InvoicingPlatform() {
     } catch (e) { showToast(`Email error: ${e.message}`, "error"); }
   };
 
-  const resetData = async () => { if (confirm("Reset all data?")) { setData(defaultData); try { await window.storage.delete(STORAGE_KEY); } catch {} } };
-
-  if (!loaded) return <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100vh", fontFamily: "'DM Sans', sans-serif", color: theme.textMuted }}>Loading...</div>;
+  const resetData = () => { if (confirm("Reset all data?")) { setData(defaultData); try { localStorage.removeItem(STORAGE_KEY); } catch {} } };
 
   return (
     <div style={{ display: "flex", minHeight: "100vh", background: theme.bg, fontFamily: "'DM Sans', sans-serif", color: theme.text }}>
