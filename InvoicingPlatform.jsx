@@ -193,10 +193,18 @@ async function generateInvoicePDF(invoice, settings, client) {
 
   y += 8;
   const tX = margin + cW * 0.58;
+  const deposit = parseFloat(invoice.deposit || 0);
+  const remaining = (invoice.total || 0) - (invoice.amountPaid || 0);
   doc.setTextColor(...G); doc.setFontSize(9.5);
   doc.text("Subtotal", tX, y);
   doc.setTextColor(...D); doc.text(fmt(invoice.total || 0), margin + cW - 3, y, { align: "right" });
   y += 6;
+  if (deposit > 0) {
+    doc.setTextColor(...G);
+    doc.text("Deposit (due on receipt)", tX, y);
+    doc.setTextColor(...D); doc.text(`+${fmt(deposit)}`, margin + cW - 3, y, { align: "right" });
+    y += 6;
+  }
   if ((invoice.amountPaid || 0) > 0) {
     doc.setTextColor(45, 122, 79);
     doc.text("Amount Paid", tX, y);
@@ -206,21 +214,23 @@ async function generateInvoicePDF(invoice, settings, client) {
   doc.setDrawColor(...D); doc.setLineWidth(0.5); doc.line(tX, y - 1, margin + cW, y - 1);
   y += 5;
   doc.setTextColor(...D); doc.setFont("helvetica", "bold"); doc.setFontSize(13);
-  const remaining = (invoice.total || 0) - (invoice.amountPaid || 0);
   doc.text("TOTAL DUE", tX, y);
   doc.text(fmt(remaining), margin + cW - 3, y, { align: "right" });
   y += 14;
 
   // Payment terms
-  const deposit = parseFloat(invoice.deposit || 0);
-  const balance = (invoice.total || 0) - deposit;
+  const hasInstallments = (invoice.installments || []).length > 0;
   const paymentTermsLines = [];
   if (deposit > 0) {
-    paymentTermsLines.push(`Deposit of ${fmt(deposit)} is due upon receipt.`);
-    if (invoice.dueDate) paymentTermsLines.push(`Remaining balance of ${fmt(balance)} is due by ${fmtDate(invoice.dueDate)}.`);
-    else paymentTermsLines.push(`Remaining balance of ${fmt(balance)} due upon completion.`);
-  } else {
-    if (invoice.dueDate) paymentTermsLines.push(`Payment of ${fmt(invoice.total || 0)} is due by ${fmtDate(invoice.dueDate)}.`);
+    paymentTermsLines.push(`A deposit of ${fmt(deposit)} is due upon receipt.`);
+  }
+  if (hasInstallments) {
+    const pendingInst = (invoice.installments || []).filter(i => i.status !== "paid");
+    if (pendingInst.length > 0) {
+      paymentTermsLines.push(`Invoice total of ${fmt(invoice.total || 0)} is payable in ${(invoice.installments || []).length} installments.`);
+    }
+  } else if (invoice.dueDate) {
+    paymentTermsLines.push(`Invoice total of ${fmt(invoice.total || 0)} is due by ${fmtDate(invoice.dueDate)}.`);
   }
   if (paymentTermsLines.length > 0) {
     doc.setFillColor(240, 248, 243);
@@ -303,10 +313,20 @@ function buildInvoiceEmailHTML(invoice, settings) {
   const invoiceNumber = escHtml(invoice.number || "");
   const dueDate = safeDate(invoice.dueDate);
   const deposit = parseFloat(invoice.deposit || 0);
-  const balance = (invoice.total || 0) - deposit;
-  const paymentTermsHtml = deposit > 0
-    ? `<tr><td colspan="2" style="font-size:13px;color:#476c2e;padding:10px 0 0;font-style:italic;">Deposit of ${escHtml(fmt(deposit))} is due upon receipt. Remaining balance of ${escHtml(fmt(balance))}${invoice.dueDate ? ` due by ${dueDate}` : " due upon completion"}.</td></tr>`
-    : invoice.dueDate ? `<tr><td colspan="2" style="font-size:13px;color:#476c2e;padding:10px 0 0;font-style:italic;">Full payment of $${amount} is due by ${dueDate}.</td></tr>` : "";
+  const hasInstallmentsEmail = (invoice.installments || []).length > 0;
+  const paymentTermsText = (() => {
+    const parts = [];
+    if (deposit > 0) parts.push(`A deposit of ${escHtml(fmt(deposit))} is due upon receipt.`);
+    if (hasInstallmentsEmail) {
+      parts.push(`The invoice total of $${amount} is payable in ${(invoice.installments || []).length} installments.`);
+    } else if (invoice.dueDate) {
+      parts.push(`The invoice total of $${amount} is due by ${dueDate}.`);
+    }
+    return parts.join(" ");
+  })();
+  const paymentTermsHtml = paymentTermsText
+    ? `<tr><td colspan="2" style="font-size:13px;color:#476c2e;padding:10px 0 0;font-style:italic;">${paymentTermsText}</td></tr>`
+    : "";
   return `<!DOCTYPE html>
 <html lang="en">
 <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>You Have a New Invoice</title></head>
@@ -333,7 +353,8 @@ function buildInvoiceEmailHTML(invoice, settings) {
             <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
               <tr><td style="font-size:13px;color:#888888;padding:8px 0;border-bottom:1px solid #f2f2f2;">Invoice #</td><td align="right" style="font-size:13px;color:#363636;font-weight:500;padding:8px 0;border-bottom:1px solid #f2f2f2;">${invoiceNumber}</td></tr>
               <tr><td style="font-size:13px;color:#888888;padding:8px 0;border-bottom:1px solid #f2f2f2;">From</td><td align="right" style="font-size:13px;color:#363636;font-weight:500;padding:8px 0;border-bottom:1px solid #f2f2f2;">${senderName}</td></tr>
-              ${deposit > 0 ? `<tr><td style="font-size:13px;color:#888888;padding:8px 0;border-bottom:1px solid #f2f2f2;">Deposit Due</td><td align="right" style="font-size:13px;color:#363636;font-weight:500;padding:8px 0;border-bottom:1px solid #f2f2f2;">${escHtml(fmt(deposit))}</td></tr><tr><td style="font-size:13px;color:#888888;padding:8px 0;border-bottom:1px solid #f2f2f2;">Balance</td><td align="right" style="font-size:13px;color:#363636;font-weight:500;padding:8px 0;border-bottom:1px solid #f2f2f2;">${escHtml(fmt(balance))}</td></tr>` : `<tr><td style="font-size:13px;color:#888888;padding:8px 0;border-bottom:1px solid #f2f2f2;">Amount Due</td><td align="right" style="font-size:13px;color:#363636;font-weight:500;padding:8px 0;border-bottom:1px solid #f2f2f2;">$${amount}</td></tr>`}
+              <tr><td style="font-size:13px;color:#888888;padding:8px 0;border-bottom:1px solid #f2f2f2;">Invoice Total</td><td align="right" style="font-size:13px;color:#363636;font-weight:500;padding:8px 0;border-bottom:1px solid #f2f2f2;">$${amount}</td></tr>
+              ${deposit > 0 ? `<tr><td style="font-size:13px;color:#888888;padding:8px 0;border-bottom:1px solid #f2f2f2;">Deposit (due on receipt)</td><td align="right" style="font-size:13px;color:#e07b00;font-weight:600;padding:8px 0;border-bottom:1px solid #f2f2f2;">+${escHtml(fmt(deposit))}</td></tr>` : ""}
               <tr><td style="font-size:13px;color:#888888;padding:8px 0;">Due Date</td><td align="right" style="font-size:13px;color:#363636;font-weight:500;padding:8px 0;">${dueDate}</td></tr>
               ${paymentTermsHtml}
             </table>
