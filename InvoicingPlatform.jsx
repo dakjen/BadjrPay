@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { useSession, signOut } from "next-auth/react";
+import { jsPDF } from "jspdf";
 
 function useIsMobile() {
   const [isMobile, setIsMobile] = useState(false);
@@ -129,32 +130,9 @@ function Toast({ message, type = "success", onClose }) {
 }
 
 // ═══════════════════════════════════════
-// PDF GENERATION (jsPDF loaded from CDN)
+// PDF GENERATION
 // ═══════════════════════════════════════
-let jspdfLoaded = false;
-function loadJsPDF() {
-  return new Promise((resolve, reject) => {
-    if (window.jspdf) { resolve(); return; }
-    if (jspdfLoaded) {
-      let attempts = 0;
-      const check = setInterval(() => {
-        if (window.jspdf) { clearInterval(check); resolve(); }
-        else if (++attempts > 100) { clearInterval(check); reject(new Error("jsPDF failed to load")); }
-      }, 50);
-      return;
-    }
-    jspdfLoaded = true;
-    const s = document.createElement("script");
-    s.src = "https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.2/jspdf.umd.min.js";
-    s.onload = () => resolve();
-    s.onerror = () => reject(new Error("Could not load PDF library — check your internet connection"));
-    document.head.appendChild(s);
-  });
-}
-
 async function generateInvoicePDF(invoice, settings, client) {
-  await loadJsPDF();
-  const { jsPDF } = window.jspdf;
   const doc = new jsPDF();
   const W = 210, margin = 20, cW = W - margin * 2;
   let y = 20;
@@ -500,7 +478,9 @@ export default function InvoicingPlatform() {
   const isMobile = useIsMobile();
   const { data: session } = useSession();
   const [data, setData] = useState(defaultData);
-  const [page, setPage] = useState("dashboard");
+  const [page, setPage] = useState(() => {
+    try { return localStorage.getItem("badjrpay_page") || "dashboard"; } catch { return "dashboard"; }
+  });
   const [modal, setModal] = useState(null);
   const [editItem, setEditItem] = useState(null);
   const [viewInvoice, setViewInvoice] = useState(null);
@@ -526,6 +506,7 @@ export default function InvoicingPlatform() {
   };
 
   const update = (key, val) => setData(d => { const newData = { ...d, [key]: val }; persistData(newData); return newData; });
+  const navigate = (p) => { setPage(p); setViewInvoice(null); try { localStorage.setItem("badjrpay_page", p); } catch {} };
   const showToast = (message, type = "success") => setToast({ message, type });
 
   const totalRevenue = data.invoices.filter(i => i.status === "paid").reduce((s, i) => s + (i.total || 0), 0);
@@ -643,7 +624,7 @@ export default function InvoicingPlatform() {
       {!isMobile && <nav style={{ width: 220, background: theme.surface, borderRight: `1px solid ${theme.borderLight}`, display: "flex", flexDirection: "column", padding: "20px 12px", flexShrink: 0, position: "sticky", top: 0, height: "100vh" }}>
         <div style={{ fontFamily: "'Fraunces', serif", fontSize: 20, fontWeight: 700, color: theme.accent, padding: "4px 12px 20px", letterSpacing: "-0.02em" }}>Badjr-Pay</div>
         <div style={{ display: "flex", flexDirection: "column", gap: 2, flex: 1 }}>
-          {navItems.map(n => <button key={n.id} onClick={() => { setPage(n.id); setViewInvoice(null); }} style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 12px", border: "none", borderRadius: theme.radiusSm, cursor: "pointer", background: page === n.id ? theme.accentLight : "transparent", color: page === n.id ? theme.accent : theme.textSecondary, fontWeight: page === n.id ? 600 : 400, fontSize: 13, fontFamily: "'DM Sans', sans-serif", transition: "all 0.15s", textAlign: "left" }}>{n.icon}{n.label}</button>)}
+          {navItems.map(n => <button key={n.id} onClick={() => navigate(n.id)} style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 12px", border: "none", borderRadius: theme.radiusSm, cursor: "pointer", background: page === n.id ? theme.accentLight : "transparent", color: page === n.id ? theme.accent : theme.textSecondary, fontWeight: page === n.id ? 600 : 400, fontSize: 13, fontFamily: "'DM Sans', sans-serif", transition: "all 0.15s", textAlign: "left" }}>{n.icon}{n.label}</button>)}
         </div>
         <div style={{ borderTop: `1px solid ${theme.borderLight}`, paddingTop: 12, marginTop: 8 }}>
           {session?.user && <div style={{ padding: "6px 12px", marginBottom: 4 }}><div style={{ fontSize: 12, fontWeight: 600, color: theme.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{session.user.name}</div><div style={{ fontSize: 11, color: theme.textMuted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{session.user.email}</div></div>}
@@ -675,7 +656,7 @@ export default function InvoicingPlatform() {
 
       {/* Bottom nav — mobile only */}
       {isMobile && <nav style={{ position: "fixed", bottom: 0, left: 0, right: 0, zIndex: 200, background: theme.surface, borderTop: `1px solid ${theme.borderLight}`, display: "flex", overflowX: "auto", paddingBottom: "env(safe-area-inset-bottom)" }}>
-        {navItems.map(n => <button key={n.id} onClick={() => { setPage(n.id); setViewInvoice(null); }} style={{ flex: "0 0 auto", display: "flex", flexDirection: "column", alignItems: "center", gap: 2, padding: "8px 12px", border: "none", background: "transparent", color: page === n.id ? theme.accent : theme.textMuted, fontSize: 9, fontFamily: "'DM Sans', sans-serif", cursor: "pointer", minWidth: 56, fontWeight: page === n.id ? 600 : 400 }}>
+        {navItems.map(n => <button key={n.id} onClick={() => navigate(n.id)} style={{ flex: "0 0 auto", display: "flex", flexDirection: "column", alignItems: "center", gap: 2, padding: "8px 12px", border: "none", background: "transparent", color: page === n.id ? theme.accent : theme.textMuted, fontSize: 9, fontFamily: "'DM Sans', sans-serif", cursor: "pointer", minWidth: 56, fontWeight: page === n.id ? 600 : 400 }}>
           <span style={{ color: page === n.id ? theme.accent : theme.textMuted }}>{n.icon}</span>
           {n.label}
         </button>)}
@@ -703,7 +684,7 @@ function DashboardView({ data, totalRevenue, outstanding, overdueCount, draftCou
     <div style={{ background: theme.surface, borderRadius: theme.radius, border: `1px solid ${theme.borderLight}`, overflow: "hidden" }}>
       <div style={{ padding: "14px 18px", borderBottom: `1px solid ${theme.borderLight}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <span style={{ fontWeight: 600, fontSize: 14, fontFamily: "'Fraunces', serif" }}>Recent Invoices</span>
-        <button onClick={() => setPage("invoices")} style={{ fontSize: 12, color: theme.accent, background: "none", border: "none", cursor: "pointer", fontWeight: 500 }}>View All →</button>
+        <button onClick={() => navigate("invoices")} style={{ fontSize: 12, color: theme.accent, background: "none", border: "none", cursor: "pointer", fontWeight: 500 }}>View All →</button>
       </div>
       {recent.length === 0 ? <Empty icon={Icons.invoice} message="No invoices yet" action={<Btn size="sm" onClick={() => setModal("invoice")} icon={Icons.plus}>Create Invoice</Btn>} /> :
         <table style={{ width: "100%", fontSize: 13 }}><thead><tr style={{ borderBottom: `1px solid ${theme.borderLight}` }}>
