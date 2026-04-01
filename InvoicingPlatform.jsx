@@ -487,12 +487,20 @@ export default function InvoicingPlatform() {
 
   useEffect(() => {
     loadFonts();
-    try { const p = localStorage.getItem("badjrpay_page"); if (p) setPage(p); } catch {}
+    const validPages = ["dashboard","invoices","clients","projects","services","categories","reports","users","settings"];
+    const fromHash = window.location.hash.replace("#", "");
+    if (validPages.includes(fromHash)) setPage(fromHash);
+    const onHash = () => {
+      const p = window.location.hash.replace("#", "");
+      if (validPages.includes(p)) setPage(p);
+    };
+    window.addEventListener("hashchange", onHash);
     fetch("/api/data").then(r => r.ok ? r.json() : null).then(saved => {
       if (saved && Object.keys(saved).length > 0) {
         setData({ ...defaultData, ...saved, settings: { ...defaultData.settings, ...(saved.settings || {}) } });
       }
     }).catch(() => {});
+    return () => window.removeEventListener("hashchange", onHash);
   }, []);
 
   const persistData = (newData) => {
@@ -505,7 +513,7 @@ export default function InvoicingPlatform() {
   };
 
   const update = (key, val) => setData(d => { const newData = { ...d, [key]: val }; persistData(newData); return newData; });
-  const navigate = (p) => { setPage(p); setViewInvoice(null); try { localStorage.setItem("badjrpay_page", p); } catch {} };
+  const navigate = (p) => { setPage(p); setViewInvoice(null); window.location.hash = p; };
   const showToast = (message, type = "success") => setToast({ message, type });
 
   const totalRevenue = data.invoices.filter(i => i.status === "paid").reduce((s, i) => s + (i.total || 0), 0);
