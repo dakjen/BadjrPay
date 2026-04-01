@@ -601,7 +601,7 @@ export default function InvoicingPlatform() {
       if (result.success) {
         updateInvoiceStatus(inv.id, "sent");
         showToast(`Invoice emailed to ${inv.clientEmail}`);
-      } else showToast(`Email failed: ${result.error || "check SENDER_EMAIL env var"}`, "error");
+      } else showToast(`Email failed (${result.sgStatus}): ${result.error || "check SENDER_EMAIL env var"}`, "error");
     } catch (e) { showToast(`Email error: ${e.message}`, "error"); }
   };
 
@@ -743,7 +743,6 @@ function InvoicesView({ data, setModal, setEditItem, setViewInvoice, deleteInvoi
               <div style={{ display: "flex", gap: 3 }}>
                 <Btn size="sm" variant="secondary" icon={Icons.download} onClick={() => handleDownloadPDF(inv)} title="PDF" />
                 <Btn size="sm" variant="blue" icon={Icons.mail} onClick={() => handleSendEmail(inv)} title="Email" />
-                {inv.status === "draft" && <Btn size="sm" variant="secondary" icon={Icons.send} onClick={() => updateInvoiceStatus(inv.id, "sent")} />}
                 {["sent", "viewed", "partial"].includes(inv.status) && <Btn size="sm" variant="success" icon={Icons.check} onClick={() => updateInvoiceStatus(inv.id, "paid")} />}
                 {inv.status === "overdue" && <Btn size="sm" variant="danger" icon={Icons.mail} onClick={() => handleSendOverdue(inv)} title="Send overdue reminder" />}
                 <Btn size="sm" variant="ghost" icon={Icons.edit} onClick={() => { setEditItem(inv); setModal("invoice"); }} />
@@ -774,7 +773,6 @@ function InvoiceDetailView({ invoice: inv, data, onBack, updateStatus, markParti
       <Btn variant="secondary" icon={downloadingPDF ? <span className="spin" style={{ display: "inline-flex" }}>{Icons.spinner}</span> : Icons.download} onClick={onDownloadPDF} disabled={downloadingPDF}>{downloadingPDF ? "Generating..." : "Download PDF"}</Btn>
       <Btn variant="blue" icon={sending ? <span className="spin" style={{ display: "inline-flex" }}>{Icons.spinner}</span> : Icons.mail} onClick={onSend} disabled={sending}>{sending ? "Sending..." : "Email to Client"}</Btn>
       {inv.status === "overdue" && <Btn variant="danger" icon={sendingReminder ? <span className="spin" style={{ display: "inline-flex" }}>{Icons.spinner}</span> : Icons.mail} onClick={onSendReminder} disabled={sendingReminder}>{sendingReminder ? "Sending..." : "Send Overdue Reminder"}</Btn>}
-      {inv.status === "draft" && <Btn icon={Icons.send} onClick={() => updateStatus(inv.id, "sent")}>Mark as Sent</Btn>}
       {inv.status !== "paid" && <Btn variant="success" icon={Icons.check} onClick={() => updateStatus(inv.id, "paid")}>Mark Fully Paid</Btn>}
     </div>
 

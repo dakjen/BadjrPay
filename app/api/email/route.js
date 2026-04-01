@@ -37,7 +37,7 @@ export async function POST(req) {
     body: JSON.stringify(payload),
   });
 
-  if (res.ok || res.status === 202) return NextResponse.json({ success: true });
-  const err = await res.text();
-  return NextResponse.json({ error: err }, { status: res.status });
+  const responseText = await res.text();
+  if (res.ok || res.status === 202) return NextResponse.json({ success: true, sgStatus: res.status });
+  return NextResponse.json({ error: responseText, sgStatus: res.status }, { status: res.status });
 }

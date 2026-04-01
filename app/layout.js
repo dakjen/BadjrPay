@@ -2,6 +2,7 @@ export const metadata = {
   title: "Badjr-Pay",
   description: "Invoicing Platform by BaDjR Tech",
   manifest: "/manifest.json",
+  icons: { icon: "/icon.svg", apple: "/icon.svg" },
   appleWebApp: { capable: true, statusBarStyle: "default", title: "Badjr-Pay" },
 };
 
