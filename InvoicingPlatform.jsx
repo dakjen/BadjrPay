@@ -133,13 +133,21 @@ function Toast({ message, type = "success", onClose }) {
 // ═══════════════════════════════════════
 let jspdfLoaded = false;
 function loadJsPDF() {
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     if (window.jspdf) { resolve(); return; }
-    if (jspdfLoaded) { const check = setInterval(() => { if (window.jspdf) { clearInterval(check); resolve(); } }, 50); return; }
+    if (jspdfLoaded) {
+      let attempts = 0;
+      const check = setInterval(() => {
+        if (window.jspdf) { clearInterval(check); resolve(); }
+        else if (++attempts > 100) { clearInterval(check); reject(new Error("jsPDF failed to load")); }
+      }, 50);
+      return;
+    }
     jspdfLoaded = true;
     const s = document.createElement("script");
     s.src = "https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.2/jspdf.umd.min.js";
     s.onload = () => resolve();
+    s.onerror = () => reject(new Error("Could not load PDF library — check your internet connection"));
     document.head.appendChild(s);
   });
 }
@@ -764,16 +772,18 @@ function InvoiceDetailView({ invoice: inv, data, onBack, updateStatus, markParti
   const [payAmount, setPayAmount] = useState("");
   const [sending, setSending] = useState(false);
   const [sendingReminder, setSendingReminder] = useState(false);
+  const [downloadingPDF, setDownloadingPDF] = useState(false);
   const remaining = (inv.total || 0) - (inv.amountPaid || 0);
   const project = data.projects.find(p => p.id === inv.projectId);
   const onSend = async () => { setSending(true); await handleSendEmail(inv); setSending(false); };
   const onSendReminder = async () => { setSendingReminder(true); await handleSendOverdue(inv); setSendingReminder(false); };
+  const onDownloadPDF = async () => { setDownloadingPDF(true); await handleDownloadPDF(inv); setDownloadingPDF(false); };
 
   return <div>
     <button onClick={onBack} style={{ display: "flex", alignItems: "center", gap: 6, background: "none", border: "none", cursor: "pointer", color: theme.textSecondary, fontSize: 13, marginBottom: 16, fontFamily: "'DM Sans', sans-serif" }}>{Icons.back} Back to Invoices</button>
 
     <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
-      <Btn variant="secondary" icon={Icons.download} onClick={() => handleDownloadPDF(inv)}>Download PDF</Btn>
+      <Btn variant="secondary" icon={downloadingPDF ? <span className="spin" style={{ display: "inline-flex" }}>{Icons.spinner}</span> : Icons.download} onClick={onDownloadPDF} disabled={downloadingPDF}>{downloadingPDF ? "Generating..." : "Download PDF"}</Btn>
       <Btn variant="blue" icon={sending ? <span className="spin" style={{ display: "inline-flex" }}>{Icons.spinner}</span> : Icons.mail} onClick={onSend} disabled={sending}>{sending ? "Sending..." : "Email to Client"}</Btn>
       {inv.status === "overdue" && <Btn variant="danger" icon={sendingReminder ? <span className="spin" style={{ display: "inline-flex" }}>{Icons.spinner}</span> : Icons.mail} onClick={onSendReminder} disabled={sendingReminder}>{sendingReminder ? "Sending..." : "Send Overdue Reminder"}</Btn>}
       {inv.status === "draft" && <Btn icon={Icons.send} onClick={() => updateStatus(inv.id, "sent")}>Mark as Sent</Btn>}
