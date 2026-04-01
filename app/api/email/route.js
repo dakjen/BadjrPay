@@ -9,7 +9,10 @@ export async function POST(req) {
   const apiKey = process.env.SENDGRID_API_KEY;
   if (!apiKey) return NextResponse.json({ error: "SENDGRID_API_KEY not configured" }, { status: 500 });
 
-  const { senderEmail, senderName, recipientEmail, recipientName, templateId, templateData, pdfBase64, filename } = await req.json();
+  const { recipientEmail, recipientName, templateId, templateData, pdfBase64, filename } = await req.json();
+  const senderEmail = process.env.SENDER_EMAIL;
+  const senderName = process.env.SENDER_NAME || senderEmail;
+  if (!senderEmail) return NextResponse.json({ error: "SENDER_EMAIL not configured" }, { status: 500 });
 
   const payload = {
     personalizations: [{ to: [{ email: recipientEmail, name: recipientName || "" }], dynamic_template_data: templateData || {} }],

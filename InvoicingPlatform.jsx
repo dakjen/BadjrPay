@@ -53,7 +53,7 @@ const defaultData = {
     { id: genId(), name: "Consulting", color: "#C4841D" },
   ],
   services: [], projects: [], invoices: [],
-  settings: { senderEmail: "", senderName: "", companyName: "", companyAddress: "", companyPhone: "" },
+  settings: { companyName: "", companyAddress: "", companyPhone: "" },
 };
 
 // ═══════════════════════════════════════
@@ -164,7 +164,6 @@ async function generateInvoicePDF(invoice, settings, client) {
   doc.setFont("helvetica", "normal"); doc.setFontSize(9);
   if (settings.companyAddress) doc.text(settings.companyAddress, margin, 28);
   if (settings.companyPhone) doc.text(settings.companyPhone, margin, 34);
-  if (settings.senderEmail) doc.text(settings.senderEmail, margin, 40);
   doc.setFont("helvetica", "bold"); doc.setFontSize(12);
   doc.text(invoice.number || "INV-0001", W - margin, 20, { align: "right" });
   doc.setFont("helvetica", "normal"); doc.setFontSize(9);
@@ -577,14 +576,12 @@ export default function InvoicingPlatform() {
 
   const handleSendEmail = async (inv) => {
     if (!inv.clientEmail) { showToast("This invoice has no client email. Edit the invoice to add one.", "error"); return; }
-    if (!data.settings.senderEmail) { showToast("Set your sender email in Settings first", "error"); setPage("settings"); return; }
     try {
       const remaining = (inv.total || 0) - (inv.amountPaid || 0);
       const client = { email: inv.clientEmail, phone: inv.clientPhone, address: inv.clientAddress };
       const { pdfBase64, filename } = await generateInvoicePDF(inv, data.settings, client);
-      const senderName = data.settings.senderName || data.settings.companyName;
+      const senderName = data.settings.companyName || "BaDjR Tech";
       const result = await sendEmail({
-        senderEmail: data.settings.senderEmail, senderName,
         recipientEmail: inv.clientEmail, recipientName: inv.clientName,
         templateId: SENDGRID_TEMPLATES.newInvoice,
         templateData: { client_name: inv.clientName || "", sender_name: senderName, invoice_number: inv.number, invoice_amount: remaining.toFixed(2), due_date: inv.dueDate ? fmtDate(inv.dueDate) : "—", invoice_link: "" },
@@ -594,30 +591,27 @@ export default function InvoicingPlatform() {
         updateInvoiceStatus(inv.id, "sent");
         showToast(`Invoice emailed to ${inv.clientEmail}`);
         sendEmail({
-          senderEmail: data.settings.senderEmail, senderName,
-          recipientEmail: data.settings.senderEmail, recipientName: senderName,
+          recipientEmail: inv.clientEmail, recipientName: inv.clientName,
           templateId: SENDGRID_TEMPLATES.invoiceSubmitted,
           templateData: { sender_name: senderName, invoice_number: inv.number, client_name: inv.clientName || "", invoice_amount: remaining.toFixed(2), sent_date: fmtDate(today()), due_date: inv.dueDate ? fmtDate(inv.dueDate) : "—", invoice_link: "" },
         }).catch(() => {});
-      } else showToast("Email failed — check sender email in Settings", "error");
+      } else showToast("Email failed — check your SENDER_EMAIL env var", "error");
     } catch (e) { showToast(`Email error: ${e.message}`, "error"); }
   };
 
   const handleSendOverdue = async (inv) => {
     if (!inv.clientEmail) { showToast("This invoice has no client email. Edit the invoice to add one.", "error"); return; }
-    if (!data.settings.senderEmail) { showToast("Set your sender email in Settings first", "error"); setPage("settings"); return; }
     try {
       const remaining = (inv.total || 0) - (inv.amountPaid || 0);
-      const senderName = data.settings.senderName || data.settings.companyName;
+      const senderName = data.settings.companyName || "BaDjR Tech";
       const daysOverdue = inv.dueDate ? Math.max(0, Math.floor((Date.now() - new Date(inv.dueDate).getTime()) / 86400000)) : 0;
       const result = await sendEmail({
-        senderEmail: data.settings.senderEmail, senderName,
         recipientEmail: inv.clientEmail, recipientName: inv.clientName,
         templateId: SENDGRID_TEMPLATES.overdue,
         templateData: { client_name: inv.clientName || "", sender_name: senderName, invoice_number: inv.number, invoice_amount: remaining.toFixed(2), due_date: inv.dueDate ? fmtDate(inv.dueDate) : "—", days_overdue: String(daysOverdue), invoice_link: "" },
       });
       if (result.success) showToast(`Overdue reminder sent to ${inv.clientEmail}`);
-      else showToast("Reminder failed — check sender email in Settings", "error");
+      else showToast("Reminder failed — check your SENDER_EMAIL env var", "error");
     } catch (e) { showToast(`Email error: ${e.message}`, "error"); }
   };
 
@@ -1157,16 +1151,7 @@ function SettingsView({ settings, onSave }) {
       <div style={{ marginTop: 12 }}><Input label="Address" value={form.companyAddress || ""} onChange={e => set("companyAddress", e.target.value)} placeholder="123 Main St, Washington, DC" /></div>
     </div>
 
-    <div style={{ background: theme.surface, borderRadius: theme.radius, border: `1px solid ${theme.borderLight}`, padding: "20px 24px", marginBottom: 16 }}>
-      <h3 style={{ margin: "0 0 4px", fontFamily: "'Fraunces', serif", fontSize: 16, fontWeight: 600 }}>Email Sender</h3>
-      <p style={{ fontSize: 12, color: theme.textMuted, margin: "0 0 14px" }}>The From address for invoice emails. Must be a verified sender in your SendGrid account.</p>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-        <Input label="Sender Email" value={form.senderEmail || ""} onChange={e => set("senderEmail", e.target.value)} placeholder="invoices@badjrtech.com" />
-        <Input label="Sender Name" value={form.senderName || ""} onChange={e => set("senderName", e.target.value)} placeholder="BaDjR Tech" />
-      </div>
-    </div>
-
-    <div style={{ display: "flex", justifyContent: "flex-end" }}><Btn onClick={() => onSave(form)}>Save Settings</Btn></div>
+<div style={{ display: "flex", justifyContent: "flex-end" }}><Btn onClick={() => onSave(form)}>Save Settings</Btn></div>
   </div>;
 }
 
