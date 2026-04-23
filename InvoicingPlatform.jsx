@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useSession, signOut } from "next-auth/react";
 import { jsPDF } from "jspdf";
+import { BookkeepingShell } from "./BookkeepingModule";
 
 function useIsMobile() {
   const [isMobile, setIsMobile] = useState(false);
@@ -538,7 +539,7 @@ export default function InvoicingPlatform() {
 
   useEffect(() => {
     loadFonts();
-    const validPages = ["dashboard","invoices","clients","projects","services","categories","reports","users","settings"];
+    const validPages = ["dashboard","invoices","clients","projects","services","categories","reports","bookkeeping","users","settings"];
     const fromHash = window.location.hash.replace("#", "");
     if (validPages.includes(fromHash)) setPage(fromHash);
     const onHash = () => {
@@ -588,6 +589,7 @@ export default function InvoicingPlatform() {
     { id: "services", label: "Services", icon: Icons.service },
     { id: "categories", label: "Categories", icon: Icons.category },
     { id: "reports", label: "Reports", icon: Icons.report },
+    { id: "bookkeeping", label: "Books", icon: Icons.dollar },
     { id: "users", label: "Users", icon: Icons.user },
     { id: "settings", label: "Settings", icon: Icons.settings },
   ];
@@ -709,6 +711,7 @@ export default function InvoicingPlatform() {
         {page === "services" && <ServicesView {...{ data, setModal, setEditItem, deleteService }} />}
         {page === "categories" && <CategoriesView {...{ data, setModal, setEditItem, deleteCategory }} />}
         {page === "reports" && <ReportsView data={data} />}
+        {page === "bookkeeping" && <BookkeepingShell session={session} showToast={showToast} />}
         {page === "users" && <UsersView />}
         {page === "settings" && <SettingsView settings={data.settings} onSave={saveSettings} />}
       </main>
@@ -1237,7 +1240,7 @@ function ReportsView({ data }) {
 // ═══════════════════════════════════════
 function UsersView() {
   const [users, setUsers] = useState([]);
-  const [form, setForm] = useState({ name: "", email: "", password: "" });
+  const [form, setForm] = useState({ name: "", email: "", password: "", role: "team_member" });
   const [loading, setLoading] = useState(false);
   const [adding, setAdding] = useState(false);
   const [error, setError] = useState("");
@@ -1252,7 +1255,7 @@ function UsersView() {
     const res = await fetch("/api/users", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(form) });
     const data = await res.json();
     setLoading(false);
-    if (res.ok) { setUsers(u => [...u, data]); setForm({ name: "", email: "", password: "" }); setAdding(false); }
+    if (res.ok) { setUsers(u => [...u, data]); setForm({ name: "", email: "", password: "", role: "team_member" }); setAdding(false); }
     else setError(data.error || "Failed to add user");
   };
 
@@ -1276,7 +1279,14 @@ function UsersView() {
           <Input label="Full Name" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="Jane Smith" />
           <Input label="Email" type="email" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} placeholder="jane@badjrtech.com" />
         </div>
-        <Input label="Password" type="password" value={form.password} onChange={e => setForm(f => ({ ...f, password: e.target.value }))} placeholder="At least 8 characters" />
+        <div className="r-g" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+          <Input label="Password" type="password" value={form.password} onChange={e => setForm(f => ({ ...f, password: e.target.value }))} placeholder="At least 8 characters" />
+          <Select label="Role" value={form.role} onChange={e => setForm(f => ({ ...f, role: e.target.value }))}>
+            <option value="owner">Owner</option>
+            <option value="team_member">Team Member</option>
+            <option value="accountant">Accountant</option>
+          </Select>
+        </div>
         <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
           <Btn variant="secondary" onClick={() => setAdding(false)}>Cancel</Btn>
           <Btn disabled={loading}>{loading ? "Adding…" : "Add User"}</Btn>
