@@ -2,7 +2,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { initDb } from "@/lib/db";
 import {
-  getBookkeepingData, getPnLData,
+  getBookkeepingData, getPnLData, getBalanceSheetData,
   upsertTransaction, bulkImportTransactions, deleteTransaction, deleteBatch,
   reconcileTransactions, reviewTransactions,
   upsertPayroll, deletePayroll,
@@ -23,12 +23,19 @@ export async function GET(req) {
     const year = searchParams.get("year") ? parseInt(searchParams.get("year")) : null;
     const month = searchParams.get("month") ? parseInt(searchParams.get("month")) : null;
 
-    // Check for P&L request
-    if (searchParams.get("report") === "pnl") {
+    const report = searchParams.get("report");
+
+    if (report === "pnl") {
       const start = searchParams.get("start") || `${year || new Date().getFullYear()}-01-01`;
       const end = searchParams.get("end") || `${year || new Date().getFullYear()}-12-31`;
       const pnl = await getPnLData(start, end);
       return NextResponse.json({ pnl }, { headers: { "Cache-Control": "no-store" } });
+    }
+
+    if (report === "balance_sheet") {
+      const asOf = searchParams.get("asof") || `${year || new Date().getFullYear()}-12-31`;
+      const balanceSheet = await getBalanceSheetData(asOf);
+      return NextResponse.json({ balanceSheet }, { headers: { "Cache-Control": "no-store" } });
     }
 
     const data = await getBookkeepingData(year, month);

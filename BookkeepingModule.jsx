@@ -174,6 +174,7 @@ export function BookkeepingShell({ session, showToast }) {
     { id: "payroll", label: "Payroll" },
     { id: "contractors", label: "Contractors" },
     { id: "pnl", label: "P&L Report" },
+    { id: "balance_sheet", label: "Balance Sheet" },
   ];
 
   const years = [];
@@ -210,7 +211,8 @@ export function BookkeepingShell({ session, showToast }) {
       {tab === "reconcile" && <ReconcileView data={data} act={act} showToast={showToast} canInput={canInput} />}
       {tab === "payroll" && <PayrollView data={data} act={act} showToast={showToast} canInput={canInput} canEdit={canEdit} />}
       {tab === "contractors" && <ContractorView data={data} act={act} showToast={showToast} canEdit={canEdit} filterYear={filterYear} />}
-      {tab === "pnl" && <PnLView filterYear={filterYear} filterMonth={filterMonth} showToast={showToast} settings={null} />}
+      {tab === "pnl" && <PnLView filterYear={filterYear} filterMonth={filterMonth} showToast={showToast} data={data} act={act} />}
+      {tab === "balance_sheet" && <BalanceSheetView filterYear={filterYear} showToast={showToast} />}
     </>}
   </div>;
 }
@@ -946,9 +948,12 @@ function ContractorPaymentForm({ contractorId, onSave, onCancel }) {
 // ═══════════════════════════════════════
 // P&L REPORT
 // ═══════════════════════════════════════
-function PnLView({ filterYear, filterMonth, showToast }) {
+function PnLView({ filterYear, filterMonth, showToast, data, act }) {
   const [pnlData, setPnlData] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [expenseOpen, setExpenseOpen] = useState(false);
+  const [expenseForm, setExpenseForm] = useState({ date: today(), description: "", amount: "", categoryId: "", accountId: "" });
+  const [saving, setSaving] = useState(false);
 
   const startDate = filterMonth > 0
     ? `${filterYear}-${String(filterMonth).padStart(2, "0")}-01`
@@ -957,28 +962,59 @@ function PnLView({ filterYear, filterMonth, showToast }) {
     ? `${filterYear}-${String(filterMonth).padStart(2, "0")}-${new Date(filterYear, filterMonth, 0).getDate()}`
     : `${filterYear}-12-31`;
 
-  useEffect(() => {
+  const fetchPnl = () => {
     setLoading(true);
     bkFetch({ report: "pnl", start: startDate, end: endDate })
       .then(d => setPnlData(d.pnl))
       .catch(e => showToast(e.message, "error"))
       .finally(() => setLoading(false));
-  }, [startDate, endDate]);
+  };
+
+  useEffect(() => { fetchPnl(); }, [startDate, endDate]);
+
+  const handleAddExpense = async () => {
+    if (!expenseForm.date || !expenseForm.amount || !expenseForm.description) {
+      showToast("Date, description, and amount are required", "error");
+      return;
+    }
+    setSaving(true);
+    const ok = await act("upsert_transaction", {
+      id: genId(),
+      date: expenseForm.date,
+      name: expenseForm.description,
+      description: expenseForm.description,
+      amount: -Math.abs(parseFloat(expenseForm.amount)),
+      categoryId: expenseForm.categoryId || null,
+      accountId: expenseForm.accountId || null,
+      type: "expense",
+      vendor: "", reference: "", notes: "",
+      reconciled: false, reviewed: false, source: "manual",
+    });
+    setSaving(false);
+    if (ok) {
+      showToast("Expense added");
+      setExpenseForm({ date: today(), description: "", amount: "", categoryId: "", accountId: "" });
+      setExpenseOpen(false);
+      fetchPnl();
+    }
+  };
 
   if (loading) return <div style={{ textAlign: "center", padding: 40, color: theme.textMuted }}>Loading...</div>;
   if (!pnlData) return <Empty message="No P&L data available." />;
 
+  const { categories: catRows = [], invoiceRevenue = 0, invoiceCount = 0 } = pnlData;
+
   // Group by sections
-  const income = pnlData.filter(r => r.type === "income" && r.total > 0);
-  const cogs = pnlData.filter(r => (r.categoryId === "bkc_cogs" || r.parent === "bkc_cogs") && r.total > 0);
+  const income = catRows.filter(r => r.type === "income" && r.total > 0);
+  const cogs = catRows.filter(r => (r.categoryId === "bkc_cogs" || r.parent === "bkc_cogs") && r.total > 0);
   const cogsIds = new Set(cogs.map(r => r.categoryId));
   const payrollIds = new Set(["bkc_wages", "bkc_payroll_tax", "bkc_benefits"]);
   const contractorIds = new Set(["bkc_contractor"]);
-  const payrollItems = pnlData.filter(r => payrollIds.has(r.categoryId) && r.total > 0);
-  const contractorItems = pnlData.filter(r => contractorIds.has(r.categoryId) && r.total > 0);
-  const opex = pnlData.filter(r => r.type === "expense" && r.total > 0 && !cogsIds.has(r.categoryId) && !payrollIds.has(r.categoryId) && !contractorIds.has(r.categoryId) && r.parent !== "bkc_cogs");
+  const payrollItems = catRows.filter(r => payrollIds.has(r.categoryId) && r.total > 0);
+  const contractorItems = catRows.filter(r => contractorIds.has(r.categoryId) && r.total > 0);
+  const opex = catRows.filter(r => r.type === "expense" && r.total > 0 && !cogsIds.has(r.categoryId) && !payrollIds.has(r.categoryId) && !contractorIds.has(r.categoryId) && r.parent !== "bkc_cogs");
 
-  const totalIncome = income.reduce((s, r) => s + r.total, 0);
+  const totalIncome = income.reduce((s, r) => s + r.total, 0) + invoiceRevenue;
   const totalCogs = cogs.reduce((s, r) => s + r.total, 0);
   const grossProfit = totalIncome - totalCogs;
   const totalOpex = opex.reduce((s, r) => s + r.total, 0);
@@ -1005,6 +1041,7 @@ function PnLView({ filterYear, filterMonth, showToast }) {
 
   const handleExportCSV = () => {
     const rows = [
+      ...(invoiceRevenue > 0 ? [{ Section: "Income", Category: `Client Payments (${invoiceCount} paid invoices)`, Amount: invoiceRevenue }] : []),
       ...income.map(r => ({ Section: "Income", Category: r.categoryName, Amount: r.total })),
       { Section: "Income", Category: "TOTAL INCOME", Amount: totalIncome },
       ...cogs.map(r => ({ Section: "COGS", Category: r.categoryName, Amount: r.total })),
@@ -1058,7 +1095,10 @@ function PnLView({ filterYear, filterMonth, showToast }) {
       doc.setFont("helvetica", "normal");
     };
 
-    addSection("Income", income, totalIncome);
+    addSection("Income", [
+      ...(invoiceRevenue > 0 ? [{ categoryName: `Client Payments (${invoiceCount} paid invoices)`, total: invoiceRevenue }] : []),
+      ...income,
+    ], totalIncome);
     if (cogs.length > 0) addSection("Cost of Goods Sold", cogs, totalCogs);
 
     // Gross Profit
@@ -1086,7 +1126,37 @@ function PnLView({ filterYear, filterMonth, showToast }) {
     showToast("Downloaded P&L PDF");
   };
 
+  const expenseCategories = (data?.categories || []).filter(c => c.type === "expense");
+
   return <div>
+    {/* Quick-add expense */}
+    <div style={{ background: theme.surface, border: `1px solid ${theme.borderLight}`, borderRadius: theme.radius, marginBottom: 16, overflow: "hidden" }}>
+      <button onClick={() => setExpenseOpen(o => !o)} style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 16px", background: "none", border: "none", cursor: "pointer", fontFamily: "'DM Sans', sans-serif" }}>
+        <span style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 14, fontWeight: 600, color: theme.text }}>
+          {BkIcons.plus} Add Expense
+        </span>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={theme.textMuted} strokeWidth="2" strokeLinecap="round" style={{ transform: expenseOpen ? "rotate(180deg)" : "none", transition: "transform 0.2s" }}><polyline points="6 9 12 15 18 9"/></svg>
+      </button>
+      {expenseOpen && <div style={{ padding: "0 16px 16px", borderTop: `1px solid ${theme.borderLight}` }}>
+        <div style={{ display: "grid", gridTemplateColumns: "140px 1fr 130px", gap: 10, marginTop: 12, alignItems: "end" }}>
+          <Input label="Date" type="date" value={expenseForm.date} onChange={e => setExpenseForm(f => ({ ...f, date: e.target.value }))} />
+          <Input label="Description" value={expenseForm.description} onChange={e => setExpenseForm(f => ({ ...f, description: e.target.value }))} placeholder="What was this expense?" />
+          <Input label="Amount" type="number" value={expenseForm.amount} onChange={e => setExpenseForm(f => ({ ...f, amount: e.target.value }))} placeholder="0.00" min="0" step="0.01" />
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr auto", gap: 10, marginTop: 10, alignItems: "end" }}>
+          <Select label="Category" value={expenseForm.categoryId} onChange={e => setExpenseForm(f => ({ ...f, categoryId: e.target.value }))}>
+            <option value="">Uncategorized</option>
+            {expenseCategories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </Select>
+          <Select label="Account (optional)" value={expenseForm.accountId} onChange={e => setExpenseForm(f => ({ ...f, accountId: e.target.value }))}>
+            <option value="">No account</option>
+            {(data?.accounts || []).map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+          </Select>
+          <Btn onClick={handleAddExpense} disabled={saving} style={{ marginBottom: 1 }}>{saving ? "Saving…" : "Add"}</Btn>
+        </div>
+      </div>}
+    </div>
+
     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20, flexWrap: "wrap", gap: 8 }}>
       <div>
         <h3 style={{ margin: 0, fontFamily: "'Fraunces', serif", fontSize: 18, fontWeight: 600 }}>Profit & Loss Statement</h3>
@@ -1099,7 +1169,10 @@ function PnLView({ filterYear, filterMonth, showToast }) {
     </div>
 
     <div style={{ background: theme.surface, border: `1px solid ${theme.borderLight}`, borderRadius: theme.radius, padding: 24 }}>
-      {income.length > 0 && <Section title="Income" items={income} total={totalIncome} />}
+      <Section title="Income" items={[
+        ...(invoiceRevenue > 0 ? [{ categoryId: "__invoices__", categoryName: `Client Payments (${invoiceCount} paid invoice${invoiceCount !== 1 ? "s" : ""})`, total: invoiceRevenue }] : []),
+        ...income,
+      ]} total={totalIncome} />
       {cogs.length > 0 && <Section title="Cost of Goods Sold" items={cogs} total={totalCogs} />}
 
       <div style={{ display: "flex", justifyContent: "space-between", padding: "10px 0", borderTop: `2px solid ${theme.borderLight}`, borderBottom: `2px solid ${theme.borderLight}`, marginBottom: 20, fontWeight: 700, fontSize: 15, fontFamily: "'Fraunces', serif" }}>
@@ -1114,6 +1187,206 @@ function PnLView({ filterYear, filterMonth, showToast }) {
       <div style={{ display: "flex", justifyContent: "space-between", padding: "12px 0", borderTop: `3px solid ${theme.accent}`, marginTop: 10, fontWeight: 700, fontSize: 18, fontFamily: "'Fraunces', serif" }}>
         <span>Net Income</span>
         <span style={{ color: netIncome >= 0 ? theme.success : theme.danger }}>{fmt(netIncome)}</span>
+      </div>
+    </div>
+  </div>;
+}
+
+// ═══════════════════════════════════════
+// BALANCE SHEET
+// ═══════════════════════════════════════
+function BalanceSheetView({ filterYear, showToast }) {
+  const [bsData, setBsData] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  const currentYear = new Date().getFullYear();
+  const asOf = filterYear >= currentYear
+    ? new Date().toISOString().split("T")[0]
+    : `${filterYear}-12-31`;
+
+  useEffect(() => {
+    setLoading(true);
+    bkFetch({ report: "balance_sheet", asof: asOf })
+      .then(d => setBsData(d.balanceSheet))
+      .catch(e => showToast(e.message, "error"))
+      .finally(() => setLoading(false));
+  }, [asOf]);
+
+  if (loading) return <div style={{ textAlign: "center", padding: 40, color: theme.textMuted }}>Loading...</div>;
+  if (!bsData) return <Empty message="No balance sheet data available." />;
+
+  const { accountBalances, unassignedBalance, accountsReceivable, invoiceRevenue = 0, totalExpenses = 0, retainedEarnings } = bsData;
+
+  const totalCash = accountBalances.reduce((s, a) => s + a.balance, 0) + unassignedBalance;
+  const totalAR = accountsReceivable.reduce((s, r) => s + r.outstanding, 0);
+  const totalAssets = totalCash + totalAR;
+  const totalLiabilities = 0;
+  const totalEquity = retainedEarnings;
+
+  const asOfLabel = new Date(asOf + "T00:00:00").toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
+
+  const BSSection = ({ title, children, total, totalLabel, color }) => (
+    <div style={{ marginBottom: 24 }}>
+      <div style={{ fontSize: 12, fontWeight: 700, color: theme.textMuted, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 8 }}>{title}</div>
+      {children}
+      <div style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderTop: `1px solid ${theme.borderLight}`, marginTop: 4, fontWeight: 600, fontSize: 13 }}>
+        <span>{totalLabel || `Total ${title}`}</span>
+        <span style={{ color: color || theme.text }}>{fmt(total)}</span>
+      </div>
+    </div>
+  );
+
+  const BSRow = ({ label, value, indent = true, muted }) => (
+    <div style={{ display: "flex", justifyContent: "space-between", padding: "4px 0 4px " + (indent ? "16px" : "0"), fontSize: 13 }}>
+      <span style={{ color: muted ? theme.textMuted : theme.text }}>{label}</span>
+      <span>{fmt(value)}</span>
+    </div>
+  );
+
+  const handleExportPDF = () => {
+    const doc = new jsPDF();
+    const W = 210, margin = 20, cW = W - margin * 2;
+    let y = 20;
+
+    doc.setFillColor(45, 90, 61);
+    doc.rect(0, 0, W, 36, "F");
+    doc.setTextColor(255, 255, 255);
+    doc.setFont("helvetica", "bold"); doc.setFontSize(18);
+    doc.text("Balance Sheet", margin, 18);
+    doc.setFont("helvetica", "normal"); doc.setFontSize(10);
+    doc.text(`As of ${asOfLabel}`, margin, 28);
+
+    y = 48;
+    const D = [26, 26, 26], G = [107, 101, 96];
+
+    const pdfSection = (title) => {
+      if (y > 250) { doc.addPage(); y = 20; }
+      doc.setTextColor(...G); doc.setFontSize(9); doc.setFont("helvetica", "bold");
+      doc.text(title.toUpperCase(), margin, y); y += 7;
+      doc.setFont("helvetica", "normal"); doc.setTextColor(...D);
+    };
+
+    const pdfRow = (label, value, bold = false) => {
+      if (y > 270) { doc.addPage(); y = 20; }
+      if (bold) doc.setFont("helvetica", "bold"); else doc.setFont("helvetica", "normal");
+      doc.text(`  ${label}`, margin, y);
+      doc.text(fmt(value), margin + cW, y, { align: "right" });
+      y += 5.5;
+    };
+
+    const pdfTotal = (label, value) => {
+      doc.setFont("helvetica", "bold");
+      doc.setDrawColor(200, 200, 200); doc.line(margin, y, margin + cW, y); y += 5;
+      doc.text(label, margin, y);
+      doc.text(fmt(value), margin + cW, y, { align: "right" });
+      y += 10;
+    };
+
+    // Assets
+    pdfSection("Assets");
+    if (accountBalances.length > 0) {
+      doc.setFont("helvetica", "italic"); doc.setFontSize(8.5);
+      doc.text("  Bank Accounts", margin, y); y += 5;
+      doc.setFont("helvetica", "normal"); doc.setFontSize(9);
+      accountBalances.forEach(a => pdfRow(a.name, a.balance));
+    }
+    if (unassignedBalance !== 0) pdfRow("Unassigned Transactions", unassignedBalance);
+    if (accountsReceivable.length > 0) {
+      accountsReceivable.forEach(r => pdfRow(`A/R — ${r.clientName}`, r.outstanding));
+    }
+    pdfTotal("Total Assets", totalAssets);
+
+    // Liabilities
+    pdfSection("Liabilities");
+    pdfRow("(No liabilities tracked)", 0, false);
+    pdfTotal("Total Liabilities", 0);
+
+    // Equity
+    pdfSection("Equity");
+    pdfRow("Retained Earnings (Net Income)", retainedEarnings);
+    pdfTotal("Total Equity", totalEquity);
+
+    // Grand total
+    doc.setFont("helvetica", "bold"); doc.setFontSize(13);
+    doc.setDrawColor(45, 90, 61); doc.setLineWidth(0.5);
+    doc.line(margin, y, margin + cW, y); y += 8;
+    doc.setTextColor(45, 90, 61);
+    doc.text("Total Liabilities + Equity", margin, y);
+    doc.text(fmt(totalLiabilities + totalEquity), margin + cW, y, { align: "right" });
+
+    const blob = doc.output("blob");
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a"); a.href = url; a.download = `BalanceSheet_${filterYear}.pdf`; a.click();
+    URL.revokeObjectURL(url);
+    showToast("Downloaded Balance Sheet PDF");
+  };
+
+  const handleExportCSV = () => {
+    const rows = [
+      { Section: "Assets", Item: "Bank Accounts", Amount: "" },
+      ...accountBalances.map(a => ({ Section: "Assets", Item: a.name, Amount: a.balance })),
+      ...(unassignedBalance !== 0 ? [{ Section: "Assets", Item: "Unassigned Transactions", Amount: unassignedBalance }] : []),
+      ...accountsReceivable.map(r => ({ Section: "Assets", Item: `A/R — ${r.clientName}`, Amount: r.outstanding })),
+      { Section: "Assets", Item: "TOTAL ASSETS", Amount: totalAssets },
+      { Section: "Liabilities", Item: "TOTAL LIABILITIES", Amount: 0 },
+      { Section: "Equity", Item: "Retained Earnings (Net Income)", Amount: retainedEarnings },
+      { Section: "Equity", Item: "TOTAL EQUITY", Amount: totalEquity },
+      { Section: "", Item: "TOTAL LIABILITIES + EQUITY", Amount: totalLiabilities + totalEquity },
+    ];
+    exportCSV(rows, `balance_sheet_${filterYear}.csv`);
+    showToast("Exported Balance Sheet CSV");
+  };
+
+  return <div>
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20, flexWrap: "wrap", gap: 8 }}>
+      <div>
+        <h3 style={{ margin: 0, fontFamily: "'Fraunces', serif", fontSize: 18, fontWeight: 600 }}>Balance Sheet</h3>
+        <div style={{ fontSize: 13, color: theme.textSecondary }}>As of {asOfLabel}</div>
+      </div>
+      <div style={{ display: "flex", gap: 8 }}>
+        <Btn size="sm" variant="secondary" icon={BkIcons.download} onClick={handleExportCSV}>CSV</Btn>
+        <Btn size="sm" variant="secondary" icon={BkIcons.download} onClick={handleExportPDF}>PDF</Btn>
+      </div>
+    </div>
+
+    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 16 }}>
+      <StatCard label="Total Assets" value={fmt(totalAssets)} color={theme.blue} />
+      <StatCard label="Net Income / Equity" value={fmt(totalEquity)} color={totalEquity >= 0 ? theme.success : theme.danger} />
+    </div>
+
+    <div style={{ background: theme.surface, border: `1px solid ${theme.borderLight}`, borderRadius: theme.radius, padding: 24 }}>
+
+      {/* ASSETS */}
+      <BSSection title="Assets" total={totalAssets} color={theme.blue}>
+        {accountBalances.length > 0 && <>
+          <div style={{ fontSize: 11, fontWeight: 600, color: theme.textMuted, textTransform: "uppercase", letterSpacing: "0.04em", padding: "2px 0 4px 0" }}>Bank Accounts</div>
+          {accountBalances.map(a => <BSRow key={a.id} label={a.name} value={a.balance} />)}
+        </>}
+        {unassignedBalance !== 0 && <BSRow label="Unassigned Transactions" value={unassignedBalance} />}
+        {accountsReceivable.length > 0 && <>
+          <div style={{ fontSize: 11, fontWeight: 600, color: theme.textMuted, textTransform: "uppercase", letterSpacing: "0.04em", padding: "8px 0 4px 0" }}>Accounts Receivable</div>
+          {accountsReceivable.map((r, i) => <BSRow key={i} label={r.clientName} value={r.outstanding} />)}
+        </>}
+        {totalAssets === 0 && <div style={{ fontSize: 13, color: theme.textMuted, padding: "4px 0 4px 16px" }}>No asset data yet — add bank accounts and transactions.</div>}
+      </BSSection>
+
+      <div style={{ borderTop: `2px solid ${theme.borderLight}`, margin: "8px 0 24px" }} />
+
+      {/* LIABILITIES */}
+      <BSSection title="Liabilities" total={totalLiabilities}>
+        <div style={{ fontSize: 13, color: theme.textMuted, padding: "4px 0 4px 16px" }}>Liabilities are not yet tracked in this system.</div>
+      </BSSection>
+
+      {/* EQUITY */}
+      <BSSection title="Equity" total={totalEquity} color={totalEquity >= 0 ? theme.success : theme.danger}>
+        {invoiceRevenue > 0 && <BSRow label="Revenue (Paid Invoices)" value={invoiceRevenue} />}
+        {totalExpenses > 0 && <BSRow label="Total Expenses" value={-totalExpenses} />}
+        <BSRow label="Retained Earnings (Net Income)" value={retainedEarnings} />
+      </BSSection>
+
+      <div style={{ display: "flex", justifyContent: "space-between", padding: "12px 0", borderTop: `3px solid ${theme.accent}`, marginTop: 10, fontWeight: 700, fontSize: 18, fontFamily: "'Fraunces', serif" }}>
+        <span>Total Liabilities + Equity</span>
+        <span style={{ color: theme.accent }}>{fmt(totalLiabilities + totalEquity)}</span>
       </div>
     </div>
   </div>;
