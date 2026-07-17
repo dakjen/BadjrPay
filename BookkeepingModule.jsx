@@ -212,7 +212,7 @@ export function BookkeepingShell({ session, showToast }) {
       {tab === "payroll" && <PayrollView data={data} act={act} showToast={showToast} canInput={canInput} canEdit={canEdit} />}
       {tab === "contractors" && <ContractorView data={data} act={act} showToast={showToast} canEdit={canEdit} filterYear={filterYear} />}
       {tab === "pnl" && <PnLView filterYear={filterYear} filterMonth={filterMonth} showToast={showToast} data={data} act={act} />}
-      {tab === "balance_sheet" && <BalanceSheetView filterYear={filterYear} showToast={showToast} />}
+      {tab === "balance_sheet" && <BalanceSheetView filterYear={filterYear} showToast={showToast} data={data} act={act} />}
     </>}
   </div>;
 }
@@ -1195,33 +1195,65 @@ function PnLView({ filterYear, filterMonth, showToast, data, act }) {
 // ═══════════════════════════════════════
 // BALANCE SHEET
 // ═══════════════════════════════════════
-function BalanceSheetView({ filterYear, showToast }) {
+function BalanceSheetView({ filterYear, showToast, data, act }) {
   const [bsData, setBsData] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [investOpen, setInvestOpen] = useState(false);
+  const [investForm, setInvestForm] = useState({ date: today(), description: "", amount: "", accountId: "" });
+  const [saving, setSaving] = useState(false);
 
   const currentYear = new Date().getFullYear();
   const asOf = filterYear >= currentYear
     ? new Date().toISOString().split("T")[0]
     : `${filterYear}-12-31`;
 
-  useEffect(() => {
+  const fetchBs = () => {
     setLoading(true);
     bkFetch({ report: "balance_sheet", asof: asOf })
       .then(d => setBsData(d.balanceSheet))
       .catch(e => showToast(e.message, "error"))
       .finally(() => setLoading(false));
-  }, [asOf]);
+  };
+
+  useEffect(() => { fetchBs(); }, [asOf]);
+
+  const handleAddInvestment = async () => {
+    if (!investForm.date || !investForm.amount || !investForm.description) {
+      showToast("Date, description, and amount are required", "error");
+      return;
+    }
+    setSaving(true);
+    const ok = await act("upsert_transaction", {
+      id: genId(),
+      date: investForm.date,
+      name: investForm.description,
+      description: investForm.description,
+      amount: Math.abs(parseFloat(investForm.amount)),
+      categoryId: null,
+      accountId: investForm.accountId || null,
+      type: "investment",
+      vendor: "", reference: "", notes: "",
+      reconciled: false, reviewed: false, source: "manual",
+    });
+    setSaving(false);
+    if (ok) {
+      showToast("Investment recorded");
+      setInvestForm({ date: today(), description: "", amount: "", accountId: "" });
+      setInvestOpen(false);
+      fetchBs();
+    }
+  };
 
   if (loading) return <div style={{ textAlign: "center", padding: 40, color: theme.textMuted }}>Loading...</div>;
   if (!bsData) return <Empty message="No balance sheet data available." />;
 
-  const { accountBalances, unassignedBalance, accountsReceivable, invoiceRevenue = 0, totalExpenses = 0, retainedEarnings } = bsData;
+  const { accountBalances, unassignedBalance, accountsReceivable, invoiceRevenue = 0, totalExpenses = 0, ownerInvestments = 0, retainedEarnings } = bsData;
 
   const totalCash = accountBalances.reduce((s, a) => s + a.balance, 0) + unassignedBalance;
   const totalAR = accountsReceivable.reduce((s, r) => s + r.outstanding, 0);
   const totalAssets = totalCash + totalAR;
   const totalLiabilities = 0;
-  const totalEquity = retainedEarnings;
+  const totalEquity = retainedEarnings + ownerInvestments;
 
   const asOfLabel = new Date(asOf + "T00:00:00").toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
 
@@ -1338,6 +1370,30 @@ function BalanceSheetView({ filterYear, showToast }) {
   };
 
   return <div>
+    {/* Quick-add investment */}
+    <div style={{ background: theme.surface, border: `1px solid ${theme.borderLight}`, borderRadius: theme.radius, marginBottom: 16, overflow: "hidden" }}>
+      <button onClick={() => setInvestOpen(o => !o)} style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 16px", background: "none", border: "none", cursor: "pointer", fontFamily: "'DM Sans', sans-serif" }}>
+        <span style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 14, fontWeight: 600, color: theme.text }}>
+          {BkIcons.plus} Record Principal Investment
+        </span>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={theme.textMuted} strokeWidth="2" strokeLinecap="round" style={{ transform: investOpen ? "rotate(180deg)" : "none", transition: "transform 0.2s" }}><polyline points="6 9 12 15 18 9"/></svg>
+      </button>
+      {investOpen && <div style={{ padding: "0 16px 16px", borderTop: `1px solid ${theme.borderLight}` }}>
+        <div style={{ display: "grid", gridTemplateColumns: "140px 1fr 130px", gap: 10, marginTop: 12, alignItems: "end" }}>
+          <Input label="Date" type="date" value={investForm.date} onChange={e => setInvestForm(f => ({ ...f, date: e.target.value }))} />
+          <Input label="Description" value={investForm.description} onChange={e => setInvestForm(f => ({ ...f, description: e.target.value }))} placeholder="e.g. Owner capital contribution" />
+          <Input label="Amount" type="number" value={investForm.amount} onChange={e => setInvestForm(f => ({ ...f, amount: e.target.value }))} placeholder="0.00" min="0" step="0.01" />
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 10, marginTop: 10, alignItems: "end" }}>
+          <Select label="Account (optional)" value={investForm.accountId} onChange={e => setInvestForm(f => ({ ...f, accountId: e.target.value }))}>
+            <option value="">No account</option>
+            {(data?.accounts || []).map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+          </Select>
+          <Btn onClick={handleAddInvestment} disabled={saving} style={{ marginBottom: 1 }}>{saving ? "Saving…" : "Record"}</Btn>
+        </div>
+      </div>}
+    </div>
+
     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20, flexWrap: "wrap", gap: 8 }}>
       <div>
         <h3 style={{ margin: 0, fontFamily: "'Fraunces', serif", fontSize: 18, fontWeight: 600 }}>Balance Sheet</h3>
@@ -1379,6 +1435,7 @@ function BalanceSheetView({ filterYear, showToast }) {
 
       {/* EQUITY */}
       <BSSection title="Equity" total={totalEquity} color={totalEquity >= 0 ? theme.success : theme.danger}>
+        {ownerInvestments > 0 && <BSRow label="Owner / Principal Investments" value={ownerInvestments} />}
         {invoiceRevenue > 0 && <BSRow label="Revenue (Paid Invoices)" value={invoiceRevenue} />}
         {totalExpenses > 0 && <BSRow label="Total Expenses" value={-totalExpenses} />}
         <BSRow label="Retained Earnings (Net Income)" value={retainedEarnings} />
