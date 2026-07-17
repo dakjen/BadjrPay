@@ -1157,37 +1157,105 @@ function PnLView({ filterYear, filterMonth, showToast, data, act }) {
       </div>}
     </div>
 
-    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20, flexWrap: "wrap", gap: 8 }}>
-      <div>
-        <h3 style={{ margin: 0, fontFamily: "'Fraunces', serif", fontSize: 18, fontWeight: 600 }}>Profit & Loss Statement</h3>
-        <div style={{ fontSize: 13, color: theme.textSecondary }}>{periodLabel}</div>
-      </div>
-      <div style={{ display: "flex", gap: 8 }}>
-        <Btn size="sm" variant="secondary" icon={BkIcons.download} onClick={handleExportCSV}>CSV</Btn>
-        <Btn size="sm" variant="secondary" icon={BkIcons.download} onClick={handleExportPDF}>PDF</Btn>
-      </div>
+    <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginBottom: 16 }}>
+      <Btn size="sm" variant="secondary" icon={BkIcons.download} onClick={handleExportCSV}>CSV</Btn>
+      <Btn size="sm" variant="secondary" icon={BkIcons.download} onClick={handleExportPDF}>PDF</Btn>
     </div>
 
-    <div style={{ background: theme.surface, border: `1px solid ${theme.borderLight}`, borderRadius: theme.radius, padding: 24 }}>
-      <Section title="Income" items={[
-        ...(invoiceRevenue > 0 ? [{ categoryId: "__invoices__", categoryName: `Client Payments (${invoiceCount} paid invoice${invoiceCount !== 1 ? "s" : ""})`, total: invoiceRevenue }] : []),
-        ...income,
-      ]} total={totalIncome} />
-      {cogs.length > 0 && <Section title="Cost of Goods Sold" items={cogs} total={totalCogs} />}
+    <div style={{ background: theme.surface, border: `1px solid ${theme.borderLight}`, borderRadius: theme.radius, padding: "32px 40px", fontFamily: "'DM Sans', sans-serif" }}>
 
-      <div style={{ display: "flex", justifyContent: "space-between", padding: "10px 0", borderTop: `2px solid ${theme.borderLight}`, borderBottom: `2px solid ${theme.borderLight}`, marginBottom: 20, fontWeight: 700, fontSize: 15, fontFamily: "'Fraunces', serif" }}>
-        <span>Gross Profit</span>
-        <span style={{ color: grossProfit >= 0 ? theme.success : theme.danger }}>{fmt(grossProfit)}</span>
+      {/* Document header */}
+      <div style={{ textAlign: "center", marginBottom: 28, paddingBottom: 20, borderBottom: `2px solid ${theme.text}` }}>
+        <div style={{ fontSize: 20, fontWeight: 700, fontFamily: "'Fraunces', serif", color: theme.text, letterSpacing: "0.01em" }}>Profit & Loss Statement</div>
+        <div style={{ fontSize: 13, color: theme.textSecondary, marginTop: 4 }}>{periodLabel}</div>
       </div>
 
-      {opex.length > 0 && <Section title="Operating Expenses" items={opex} total={totalOpex} />}
-      {payrollItems.length > 0 && <Section title="Payroll Expenses" items={payrollItems} total={totalPayroll} />}
-      {contractorItems.length > 0 && <Section title="Contractor Payments" items={contractorItems} total={totalContractor} />}
+      {/* P&L rows helper */}
+      {(() => {
+        const Row = ({ label, amount, indent = false, muted = false }) => (
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", padding: `3px 0 3px ${indent ? "24px" : "0"}` }}>
+            <span style={{ fontSize: 13, color: muted ? theme.textMuted : theme.text }}>{label}</span>
+            <span style={{ fontSize: 13, color: theme.text, minWidth: 110, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{fmt(amount)}</span>
+          </div>
+        );
 
-      <div style={{ display: "flex", justifyContent: "space-between", padding: "12px 0", borderTop: `3px solid ${theme.accent}`, marginTop: 10, fontWeight: 700, fontSize: 18, fontFamily: "'Fraunces', serif" }}>
-        <span>Net Income</span>
-        <span style={{ color: netIncome >= 0 ? theme.success : theme.danger }}>{fmt(netIncome)}</span>
-      </div>
+        const SectionHeader = ({ label }) => (
+          <div style={{ fontSize: 11, fontWeight: 700, color: theme.textSecondary, textTransform: "uppercase", letterSpacing: "0.08em", padding: "14px 0 4px" }}>{label}</div>
+        );
+
+        const Subtotal = ({ label, amount, color }) => (
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", padding: "5px 0", borderTop: `1px solid ${theme.border}`, marginTop: 4 }}>
+            <span style={{ fontSize: 13, fontWeight: 600, color: color || theme.text }}>{label}</span>
+            <span style={{ fontSize: 13, fontWeight: 600, color: color || theme.text, minWidth: 110, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{fmt(amount)}</span>
+          </div>
+        );
+
+        const Divider = ({ thick } = {}) => (
+          <div style={{ borderTop: thick ? `2px solid ${theme.text}` : `1px solid ${theme.borderLight}`, margin: "12px 0" }} />
+        );
+
+        const allIncomeItems = [
+          ...(invoiceRevenue > 0 ? [{ categoryName: `Client Payments (${invoiceCount} paid invoice${invoiceCount !== 1 ? "s" : ""})`, total: invoiceRevenue }] : []),
+          ...income,
+        ];
+        const allExpenseItems = [...opex, ...payrollItems, ...contractorItems];
+        const totalAllExpenses = totalOpex + totalPayroll + totalContractor;
+
+        return <>
+          {/* INCOME */}
+          <SectionHeader label="Income" />
+          {allIncomeItems.length === 0 && <Row label="No income recorded" amount={0} indent muted />}
+          {allIncomeItems.map((r, i) => <Row key={r.categoryId || i} label={r.categoryName} amount={r.total} indent />)}
+          <Subtotal label="Total Income" amount={totalIncome} />
+
+          {/* COGS */}
+          {cogs.length > 0 && <>
+            <SectionHeader label="Cost of Goods Sold" />
+            {cogs.map(r => <Row key={r.categoryId} label={r.categoryName} amount={r.total} indent />)}
+            <Subtotal label="Total Cost of Goods Sold" amount={totalCogs} />
+          </>}
+
+          {/* GROSS PROFIT */}
+          <Divider />
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", padding: "6px 0", marginBottom: 4 }}>
+            <span style={{ fontSize: 14, fontWeight: 700, color: theme.text }}>Gross Profit</span>
+            <span style={{ fontSize: 14, fontWeight: 700, color: grossProfit >= 0 ? theme.success : theme.danger, minWidth: 110, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{fmt(grossProfit)}</span>
+          </div>
+          <Divider />
+
+          {/* EXPENSES */}
+          {opex.length > 0 && <>
+            <SectionHeader label="Operating Expenses" />
+            {opex.map(r => <Row key={r.categoryId} label={r.categoryName} amount={r.total} indent />)}
+            <Subtotal label="Total Operating Expenses" amount={totalOpex} />
+          </>}
+
+          {payrollItems.length > 0 && <>
+            <SectionHeader label="Payroll" />
+            {payrollItems.map(r => <Row key={r.categoryId} label={r.categoryName} amount={r.total} indent />)}
+            <Subtotal label="Total Payroll" amount={totalPayroll} />
+          </>}
+
+          {contractorItems.length > 0 && <>
+            <SectionHeader label="Contractor Payments" />
+            {contractorItems.map(r => <Row key={r.categoryId} label={r.categoryName} amount={r.total} indent />)}
+            <Subtotal label="Total Contractor Payments" amount={totalContractor} />
+          </>}
+
+          {allExpenseItems.length > 1 && <>
+            <Divider />
+            <Subtotal label="Total Expenses" amount={totalAllExpenses} />
+          </>}
+
+          {/* NET INCOME */}
+          <div style={{ borderTop: `3px solid ${theme.text}`, borderBottom: `1px solid ${theme.text}`, margin: "16px 0 0", padding: "10px 0" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+              <span style={{ fontSize: 15, fontWeight: 700, color: theme.text, textTransform: "uppercase", letterSpacing: "0.04em" }}>Net Income</span>
+              <span style={{ fontSize: 16, fontWeight: 700, color: netIncome >= 0 ? theme.success : theme.danger, minWidth: 110, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{fmt(netIncome)}</span>
+            </div>
+          </div>
+        </>;
+      })()}
     </div>
   </div>;
 }
