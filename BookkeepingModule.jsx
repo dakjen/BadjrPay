@@ -211,8 +211,8 @@ export function BookkeepingShell({ session, showToast }) {
       {tab === "reconcile" && <ReconcileView data={data} act={act} showToast={showToast} canInput={canInput} />}
       {tab === "payroll" && <PayrollView data={data} act={act} showToast={showToast} canInput={canInput} canEdit={canEdit} />}
       {tab === "contractors" && <ContractorView data={data} act={act} showToast={showToast} canEdit={canEdit} filterYear={filterYear} />}
-      {tab === "pnl" && <PnLView filterYear={filterYear} filterMonth={filterMonth} showToast={showToast} data={data} act={act} />}
-      {tab === "balance_sheet" && <BalanceSheetView filterYear={filterYear} showToast={showToast} data={data} act={act} />}
+      {tab === "pnl" && <PnLView filterYear={filterYear} filterMonth={filterMonth} showToast={showToast} data={data} act={act} companyName={data?.companyName} />}
+      {tab === "balance_sheet" && <BalanceSheetView filterYear={filterYear} showToast={showToast} data={data} act={act} companyName={data?.companyName} />}
     </>}
   </div>;
 }
@@ -948,7 +948,7 @@ function ContractorPaymentForm({ contractorId, onSave, onCancel }) {
 // ═══════════════════════════════════════
 // P&L REPORT
 // ═══════════════════════════════════════
-function PnLView({ filterYear, filterMonth, showToast, data, act }) {
+function PnLView({ filterYear, filterMonth, showToast, data, act, companyName }) {
   const [pnlData, setPnlData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [expenseOpen, setExpenseOpen] = useState(false);
@@ -1163,96 +1163,88 @@ function PnLView({ filterYear, filterMonth, showToast, data, act }) {
     </div>
 
     <div style={{ background: theme.surface, border: `1px solid ${theme.borderLight}`, borderRadius: theme.radius, padding: "32px 40px", fontFamily: "'DM Sans', sans-serif" }}>
-
-      {/* Document header */}
-      <div style={{ textAlign: "center", marginBottom: 28, paddingBottom: 20, borderBottom: `2px solid ${theme.text}` }}>
-        <div style={{ fontSize: 20, fontWeight: 700, fontFamily: "'Fraunces', serif", color: theme.text, letterSpacing: "0.01em" }}>Profit & Loss Statement</div>
-        <div style={{ fontSize: 13, color: theme.textSecondary, marginTop: 4 }}>{periodLabel}</div>
+      {/* QBO-style header */}
+      <div style={{ textAlign: "center", marginBottom: 24 }}>
+        <div style={{ fontSize: 22, fontWeight: 700, color: theme.text, fontFamily: "'Fraunces', serif" }}>{companyName || "My Company"}</div>
+        <div style={{ fontSize: 15, fontWeight: 500, color: theme.text, marginTop: 4 }}>Profit and Loss</div>
+        <div style={{ fontSize: 13, color: theme.textSecondary, marginTop: 2 }}>{periodLabel}</div>
       </div>
 
-      {/* P&L rows helper */}
+      {/* TOTAL column header */}
+      <div style={{ display: "flex", justifyContent: "flex-end", borderTop: `1px solid ${theme.border}`, borderBottom: `1px solid ${theme.border}`, padding: "4px 0", marginBottom: 4 }}>
+        <span style={{ fontSize: 12, fontWeight: 700, color: theme.text, minWidth: 130, textAlign: "right", letterSpacing: "0.05em" }}>TOTAL</span>
+      </div>
+
       {(() => {
-        const Row = ({ label, amount, indent = false, muted = false }) => (
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", padding: `3px 0 3px ${indent ? "24px" : "0"}` }}>
-            <span style={{ fontSize: 13, color: muted ? theme.textMuted : theme.text }}>{label}</span>
-            <span style={{ fontSize: 13, color: theme.text, minWidth: 110, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{fmt(amount)}</span>
+        const qboRow = (label, amount, level = 1, bold = false) => {
+          const indent = level * 16;
+          return (
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", padding: "2px 0", paddingLeft: indent }}>
+              <span style={{ fontSize: 13, fontWeight: bold ? 700 : 400, color: theme.text }}>{label}</span>
+              {amount !== null && <span style={{ fontSize: 13, fontWeight: bold ? 700 : 400, color: theme.text, minWidth: 130, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{bold ? fmt(amount) : amount.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>}
+            </div>
+          );
+        };
+
+        const qboHeader = (label) => (
+          <div style={{ fontSize: 13, fontWeight: 400, color: theme.text, paddingTop: 8, paddingBottom: 2 }}>{label}</div>
+        );
+
+        const qboTotal = (label, amount, level = 0, topBorder = true) => (
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", padding: "3px 0", paddingLeft: level * 16, borderTop: topBorder ? `1px solid ${theme.border}` : "none", marginTop: topBorder ? 2 : 0 }}>
+            <span style={{ fontSize: 13, fontWeight: 700, color: theme.text }}>{label}</span>
+            <span style={{ fontSize: 13, fontWeight: 700, color: theme.text, minWidth: 130, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{fmt(amount)}</span>
           </div>
-        );
-
-        const SectionHeader = ({ label }) => (
-          <div style={{ fontSize: 11, fontWeight: 700, color: theme.textSecondary, textTransform: "uppercase", letterSpacing: "0.08em", padding: "14px 0 4px" }}>{label}</div>
-        );
-
-        const Subtotal = ({ label, amount, color }) => (
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", padding: "5px 0", borderTop: `1px solid ${theme.border}`, marginTop: 4 }}>
-            <span style={{ fontSize: 13, fontWeight: 600, color: color || theme.text }}>{label}</span>
-            <span style={{ fontSize: 13, fontWeight: 600, color: color || theme.text, minWidth: 110, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{fmt(amount)}</span>
-          </div>
-        );
-
-        const Divider = ({ thick } = {}) => (
-          <div style={{ borderTop: thick ? `2px solid ${theme.text}` : `1px solid ${theme.borderLight}`, margin: "12px 0" }} />
         );
 
         const allIncomeItems = [
           ...(invoiceRevenue > 0 ? [{ categoryName: `Client Payments (${invoiceCount} paid invoice${invoiceCount !== 1 ? "s" : ""})`, total: invoiceRevenue }] : []),
           ...income,
         ];
-        const allExpenseItems = [...opex, ...payrollItems, ...contractorItems];
         const totalAllExpenses = totalOpex + totalPayroll + totalContractor;
 
         return <>
           {/* INCOME */}
-          <SectionHeader label="Income" />
-          {allIncomeItems.length === 0 && <Row label="No income recorded" amount={0} indent muted />}
-          {allIncomeItems.map((r, i) => <Row key={r.categoryId || i} label={r.categoryName} amount={r.total} indent />)}
-          <Subtotal label="Total Income" amount={totalIncome} />
+          {qboHeader("Income")}
+          {allIncomeItems.map((r, i) => qboRow(r.categoryName, r.total, 2))}
+          {qboTotal("Total Income", totalIncome, 1)}
 
           {/* COGS */}
           {cogs.length > 0 && <>
-            <SectionHeader label="Cost of Goods Sold" />
-            {cogs.map(r => <Row key={r.categoryId} label={r.categoryName} amount={r.total} indent />)}
-            <Subtotal label="Total Cost of Goods Sold" amount={totalCogs} />
+            {qboHeader("Cost of Goods Sold")}
+            {cogs.map(r => qboRow(r.categoryName, r.total, 2))}
+            {qboTotal("Total Cost of Goods Sold", totalCogs, 1)}
           </>}
 
           {/* GROSS PROFIT */}
-          <Divider />
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", padding: "6px 0", marginBottom: 4 }}>
-            <span style={{ fontSize: 14, fontWeight: 700, color: theme.text }}>Gross Profit</span>
-            <span style={{ fontSize: 14, fontWeight: 700, color: grossProfit >= 0 ? theme.success : theme.danger, minWidth: 110, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{fmt(grossProfit)}</span>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", padding: "5px 0", borderTop: `1px solid ${theme.border}`, marginTop: 6 }}>
+            <span style={{ fontSize: 13, fontWeight: 700, color: theme.text }}>Gross Profit</span>
+            <span style={{ fontSize: 13, fontWeight: 700, color: theme.text, minWidth: 130, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{fmt(grossProfit)}</span>
           </div>
-          <Divider />
 
           {/* EXPENSES */}
           {opex.length > 0 && <>
-            <SectionHeader label="Operating Expenses" />
-            {opex.map(r => <Row key={r.categoryId} label={r.categoryName} amount={r.total} indent />)}
-            <Subtotal label="Total Operating Expenses" amount={totalOpex} />
+            {qboHeader("Operating Expenses")}
+            {opex.map(r => qboRow(r.categoryName, r.total, 2))}
+            {qboTotal("Total Operating Expenses", totalOpex, 1)}
           </>}
 
           {payrollItems.length > 0 && <>
-            <SectionHeader label="Payroll" />
-            {payrollItems.map(r => <Row key={r.categoryId} label={r.categoryName} amount={r.total} indent />)}
-            <Subtotal label="Total Payroll" amount={totalPayroll} />
+            {qboHeader("Payroll")}
+            {payrollItems.map(r => qboRow(r.categoryName, r.total, 2))}
+            {qboTotal("Total Payroll", totalPayroll, 1)}
           </>}
 
           {contractorItems.length > 0 && <>
-            <SectionHeader label="Contractor Payments" />
-            {contractorItems.map(r => <Row key={r.categoryId} label={r.categoryName} amount={r.total} indent />)}
-            <Subtotal label="Total Contractor Payments" amount={totalContractor} />
-          </>}
-
-          {allExpenseItems.length > 1 && <>
-            <Divider />
-            <Subtotal label="Total Expenses" amount={totalAllExpenses} />
+            {qboHeader("Contractor Payments")}
+            {contractorItems.map(r => qboRow(r.categoryName, r.total, 2))}
+            {qboTotal("Total Contractor Payments", totalContractor, 1)}
           </>}
 
           {/* NET INCOME */}
-          <div style={{ borderTop: `3px solid ${theme.text}`, borderBottom: `1px solid ${theme.text}`, margin: "16px 0 0", padding: "10px 0" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-              <span style={{ fontSize: 15, fontWeight: 700, color: theme.text, textTransform: "uppercase", letterSpacing: "0.04em" }}>Net Income</span>
-              <span style={{ fontSize: 16, fontWeight: 700, color: netIncome >= 0 ? theme.success : theme.danger, minWidth: 110, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{fmt(netIncome)}</span>
-            </div>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", padding: "5px 0", borderTop: `2px solid ${theme.text}`, borderBottom: `1px solid ${theme.text}`, marginTop: 8 }}>
+            <span style={{ fontSize: 13, fontWeight: 700, color: theme.text }}>Net Income</span>
+            <span style={{ fontSize: 13, fontWeight: 700, color: theme.text, minWidth: 130, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{fmt(netIncome)}</span>
           </div>
         </>;
       })()}
@@ -1263,7 +1255,7 @@ function PnLView({ filterYear, filterMonth, showToast, data, act }) {
 // ═══════════════════════════════════════
 // BALANCE SHEET
 // ═══════════════════════════════════════
-function BalanceSheetView({ filterYear, showToast, data, act }) {
+function BalanceSheetView({ filterYear, showToast, data, act, companyName }) {
   const [bsData, setBsData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [investOpen, setInvestOpen] = useState(false);
@@ -1437,6 +1429,20 @@ function BalanceSheetView({ filterYear, showToast, data, act }) {
     showToast("Exported Balance Sheet CSV");
   };
 
+  const qboRow = (label, amount, level = 1, bold = false) => (
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", padding: "2px 0", paddingLeft: level * 16 }}>
+      <span style={{ fontSize: 13, fontWeight: bold ? 700 : 400, color: theme.text }}>{label}</span>
+      {amount !== null && <span style={{ fontSize: 13, fontWeight: bold ? 700 : 400, color: theme.text, minWidth: 130, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{bold ? fmt(amount) : amount.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>}
+    </div>
+  );
+
+  const qboTotal = (label, amount, level = 0) => (
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", padding: "3px 0", paddingLeft: level * 16, borderTop: `1px solid ${theme.border}`, marginTop: 2 }}>
+      <span style={{ fontSize: 13, fontWeight: 700, color: theme.text }}>{label}</span>
+      <span style={{ fontSize: 13, fontWeight: 700, color: theme.text, minWidth: 130, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{fmt(amount)}</span>
+    </div>
+  );
+
   return <div>
     {/* Quick-add investment */}
     <div style={{ background: theme.surface, border: `1px solid ${theme.borderLight}`, borderRadius: theme.radius, marginBottom: 16, overflow: "hidden" }}>
@@ -1462,56 +1468,60 @@ function BalanceSheetView({ filterYear, showToast, data, act }) {
       </div>}
     </div>
 
-    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20, flexWrap: "wrap", gap: 8 }}>
-      <div>
-        <h3 style={{ margin: 0, fontFamily: "'Fraunces', serif", fontSize: 18, fontWeight: 600 }}>Balance Sheet</h3>
-        <div style={{ fontSize: 13, color: theme.textSecondary }}>As of {asOfLabel}</div>
-      </div>
-      <div style={{ display: "flex", gap: 8 }}>
-        <Btn size="sm" variant="secondary" icon={BkIcons.download} onClick={handleExportCSV}>CSV</Btn>
-        <Btn size="sm" variant="secondary" icon={BkIcons.download} onClick={handleExportPDF}>PDF</Btn>
-      </div>
+    <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginBottom: 16 }}>
+      <Btn size="sm" variant="secondary" icon={BkIcons.download} onClick={handleExportCSV}>CSV</Btn>
+      <Btn size="sm" variant="secondary" icon={BkIcons.download} onClick={handleExportPDF}>PDF</Btn>
     </div>
 
-    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 16 }}>
-      <StatCard label="Total Assets" value={fmt(totalAssets)} color={theme.blue} />
-      <StatCard label="Net Income / Equity" value={fmt(totalEquity)} color={totalEquity >= 0 ? theme.success : theme.danger} />
-    </div>
+    <div style={{ background: theme.surface, border: `1px solid ${theme.borderLight}`, borderRadius: theme.radius, padding: "32px 40px", fontFamily: "'DM Sans', sans-serif" }}>
 
-    <div style={{ background: theme.surface, border: `1px solid ${theme.borderLight}`, borderRadius: theme.radius, padding: 24 }}>
+      {/* QBO-style header */}
+      <div style={{ textAlign: "center", marginBottom: 24 }}>
+        <div style={{ fontSize: 22, fontWeight: 700, color: theme.text, fontFamily: "'Fraunces', serif" }}>{companyName || "My Company"}</div>
+        <div style={{ fontSize: 15, fontWeight: 500, color: theme.text, marginTop: 4 }}>Balance Sheet</div>
+        <div style={{ fontSize: 13, color: theme.textSecondary, marginTop: 2 }}>As of {asOfLabel}</div>
+      </div>
+
+      {/* TOTAL column header */}
+      <div style={{ display: "flex", justifyContent: "flex-end", borderTop: `1px solid ${theme.border}`, borderBottom: `1px solid ${theme.border}`, padding: "4px 0", marginBottom: 4 }}>
+        <span style={{ fontSize: 12, fontWeight: 700, color: theme.text, minWidth: 130, textAlign: "right", letterSpacing: "0.05em" }}>TOTAL</span>
+      </div>
 
       {/* ASSETS */}
-      <BSSection title="Assets" total={totalAssets} color={theme.blue}>
-        {accountBalances.length > 0 && <>
-          <div style={{ fontSize: 11, fontWeight: 600, color: theme.textMuted, textTransform: "uppercase", letterSpacing: "0.04em", padding: "2px 0 4px 0" }}>Bank Accounts</div>
-          {accountBalances.map(a => <BSRow key={a.id} label={a.name} value={a.balance} />)}
-        </>}
-        {unassignedBalance !== 0 && <BSRow label="Unassigned Transactions" value={unassignedBalance} />}
-        {accountsReceivable.length > 0 && <>
-          <div style={{ fontSize: 11, fontWeight: 600, color: theme.textMuted, textTransform: "uppercase", letterSpacing: "0.04em", padding: "8px 0 4px 0" }}>Accounts Receivable</div>
-          {accountsReceivable.map((r, i) => <BSRow key={i} label={r.clientName} value={r.outstanding} />)}
-        </>}
-        {totalAssets === 0 && <div style={{ fontSize: 13, color: theme.textMuted, padding: "4px 0 4px 16px" }}>No asset data yet — add bank accounts and transactions.</div>}
-      </BSSection>
+      {qboRow("Assets", null, 0)}
+      {qboRow("Current Assets", null, 1)}
+      {accountBalances.length > 0 && <>
+        {qboRow("Bank Accounts", null, 2)}
+        {accountBalances.map(a => qboRow(a.name, a.balance, 3))}
+        {qboTotal("Total for Bank Accounts", accountBalances.reduce((s, a) => s + a.balance, 0), 2)}
+      </>}
+      {unassignedBalance !== 0 && qboRow("Unassigned Cash", unassignedBalance, 3)}
+      {accountsReceivable.length > 0 && <>
+        {qboRow("Accounts Receivable", null, 2)}
+        {accountsReceivable.map((r, i) => qboRow(r.clientName, r.outstanding, 3))}
+        {qboTotal("Total for Accounts Receivable", totalAR, 2)}
+      </>}
+      {qboTotal("Total for Current Assets", totalAssets, 1)}
+      {qboTotal("Total for Assets", totalAssets, 0)}
 
-      <div style={{ borderTop: `2px solid ${theme.borderLight}`, margin: "8px 0 24px" }} />
+      <div style={{ borderTop: `1px solid ${theme.border}`, margin: "8px 0" }} />
 
-      {/* LIABILITIES */}
-      <BSSection title="Liabilities" total={totalLiabilities}>
-        <div style={{ fontSize: 13, color: theme.textMuted, padding: "4px 0 4px 16px" }}>Liabilities are not yet tracked in this system.</div>
-      </BSSection>
+      {/* LIABILITIES AND EQUITY */}
+      {qboRow("Liabilities and Equity", null, 0)}
+      {qboRow("Liabilities", null, 1)}
+      {qboRow("(No liabilities tracked)", null, 2)}
+      {qboTotal("Total for Liabilities", 0, 1)}
 
       {/* EQUITY */}
-      <BSSection title="Equity" total={totalEquity} color={totalEquity >= 0 ? theme.success : theme.danger}>
-        {ownerInvestments > 0 && <BSRow label="Owner / Principal Investments" value={ownerInvestments} />}
-        {invoiceRevenue > 0 && <BSRow label="Revenue (Paid Invoices)" value={invoiceRevenue} />}
-        {totalExpenses > 0 && <BSRow label="Total Expenses" value={-totalExpenses} />}
-        <BSRow label="Retained Earnings (Net Income)" value={retainedEarnings} />
-      </BSSection>
+      {qboRow("Equity", null, 1)}
+      {ownerInvestments > 0 && qboRow("Owner Investments", ownerInvestments, 2)}
+      {invoiceRevenue > 0 && qboRow("Retained Earnings", invoiceRevenue - totalExpenses, 2)}
+      {qboRow("Net Income", retainedEarnings, 2)}
+      {qboTotal("Total for Equity", totalEquity, 1)}
 
-      <div style={{ display: "flex", justifyContent: "space-between", padding: "12px 0", borderTop: `3px solid ${theme.accent}`, marginTop: 10, fontWeight: 700, fontSize: 18, fontFamily: "'Fraunces', serif" }}>
-        <span>Total Liabilities + Equity</span>
-        <span style={{ color: theme.accent }}>{fmt(totalLiabilities + totalEquity)}</span>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", padding: "5px 0", borderTop: `2px solid ${theme.text}`, borderBottom: `2px solid ${theme.text}`, marginTop: 8 }}>
+        <span style={{ fontSize: 13, fontWeight: 700, color: theme.text }}>Total for Liabilities and Equity</span>
+        <span style={{ fontSize: 13, fontWeight: 700, color: theme.text, minWidth: 130, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{fmt(totalLiabilities + totalEquity)}</span>
       </div>
     </div>
   </div>;
