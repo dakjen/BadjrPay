@@ -680,8 +680,6 @@ export default function InvoicingPlatform() {
     } catch (e) { showToast(`Email error: ${e.message}`, "error"); }
   };
 
-  const resetData = () => { if (confirm("Reset all data?")) { const d = defaultData; setData(d); fetch("/api/data", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(d) }).catch(() => {}); } };
-
   return (
     <div style={{ display: "flex", minHeight: "100vh", background: theme.bg, fontFamily: "'DM Sans', sans-serif", color: theme.text }}>
       <style>{`@keyframes modalIn{from{opacity:0;transform:translateY(10px) scale(0.98)}to{opacity:1;transform:translateY(0) scale(1)}} @keyframes spin{to{transform:rotate(360deg)}} *{box-sizing:border-box} ::-webkit-scrollbar{width:6px} ::-webkit-scrollbar-thumb{background:${theme.border};border-radius:3px} input:focus,select:focus,textarea:focus{border-color:${theme.accent}!important;box-shadow:0 0 0 2px ${theme.accentLight}} button:hover{opacity:0.9} table{border-collapse:collapse} .spin{animation:spin 1s linear infinite} .r-tbl{overflow-x:auto;-webkit-overflow-scrolling:touch} @media(max-width:767px){.r-g{grid-template-columns:1fr!important}}`}</style>
@@ -697,7 +695,6 @@ export default function InvoicingPlatform() {
         <div style={{ borderTop: `1px solid ${theme.borderLight}`, paddingTop: 12, marginTop: 8 }}>
           {session?.user && <div style={{ padding: "6px 12px", marginBottom: 4 }}><div style={{ fontSize: 12, fontWeight: 600, color: theme.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{session.user.name}</div><div style={{ fontSize: 11, color: theme.textMuted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{session.user.email}</div></div>}
           <button onClick={() => signOut({ callbackUrl: "/login" })} style={{ fontSize: 12, color: theme.danger, background: "none", border: "none", cursor: "pointer", padding: "6px 12px", textAlign: "left", fontFamily: "'DM Sans', sans-serif", width: "100%" }}>Sign Out</button>
-          <button onClick={resetData} style={{ fontSize: 11, color: theme.textMuted, background: "none", border: "none", cursor: "pointer", padding: "4px 12px", textAlign: "left", fontFamily: "'DM Sans', sans-serif" }}>Reset Data</button>
         </div>
       </nav>}
 
