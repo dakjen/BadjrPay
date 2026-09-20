@@ -1367,11 +1367,12 @@ function PnLView({ filterYear, range, showToast, data, act, companyName }) {
     let y = 20;
 
     // Header — brand gold with the green wordmark
-    doc.setFillColor(255, 189, 89);
-    doc.rect(0, 0, W, 36, "F");
+    doc.setFillColor(11, 45, 101);
+    doc.rect(0, 0, W, 3, "F");
+    doc.setDrawColor(237, 233, 225); doc.line(0, 36, W, 36);
     let hx = margin;
-    try { const lw = 34, lh = lw / LOGO_ASPECT; doc.addImage(LOGO_PNG_DATA_URL, "PNG", margin, 18 - lh / 2, lw, lh); hx = margin + lw + 8; } catch (_) {}
-    doc.setTextColor(71, 108, 46);
+    try { const lw = 34, lh = lw / LOGO_ASPECT; doc.addImage(LOGO_PNG_DATA_URL, "PNG", margin, 19 - lh / 2, lw, lh); hx = margin + lw + 8; } catch (_) {}
+    doc.setTextColor(11, 45, 101);
     doc.setFont("helvetica", "bold"); doc.setFontSize(16);
     doc.text("Profit & Loss Statement", hx, 17);
     doc.setTextColor(26, 26, 26);
@@ -1642,11 +1643,12 @@ function BalanceSheetView({ filterYear, range, showToast, data, act, companyName
     const W = 210, margin = 20, cW = W - margin * 2;
     let y = 20;
 
-    doc.setFillColor(255, 189, 89);
-    doc.rect(0, 0, W, 36, "F");
+    doc.setFillColor(11, 45, 101);
+    doc.rect(0, 0, W, 3, "F");
+    doc.setDrawColor(237, 233, 225); doc.line(0, 36, W, 36);
     let hx = margin;
-    try { const lw = 34, lh = lw / LOGO_ASPECT; doc.addImage(LOGO_PNG_DATA_URL, "PNG", margin, 18 - lh / 2, lw, lh); hx = margin + lw + 8; } catch (_) {}
-    doc.setTextColor(71, 108, 46);
+    try { const lw = 34, lh = lw / LOGO_ASPECT; doc.addImage(LOGO_PNG_DATA_URL, "PNG", margin, 19 - lh / 2, lw, lh); hx = margin + lw + 8; } catch (_) {}
+    doc.setTextColor(11, 45, 101);
     doc.setFont("helvetica", "bold"); doc.setFontSize(16);
     doc.text("Balance Sheet", hx, 17);
     doc.setTextColor(26, 26, 26);
