@@ -141,7 +141,12 @@ export function periodRange(year, period) {
   const cap = (iso) => (iso > todayIso ? todayIso : iso);
   let start = `${year}-01-01`, end = `${year}-12-31`, label = `January – December ${year}`, tag = `${year}`;
   if (period === "ytd") { end = cap(end); label = `Year to date (Jan 1 – ${fmtDate(end)})`; tag = `${year}_YTD`; }
-  else if (/^q[1-4]$/.test(period)) { const q = Number(period[1]); const m1 = (q - 1) * 3 + 1, m3 = m1 + 2; start = `${year}-${pad(m1)}-01`; end = `${year}-${pad(m3)}-${pad(lastDay(m3))}`; label = `Q${q} ${year} (${MONTH_NAMES[m1 - 1].slice(0, 3)} – ${MONTH_NAMES[m3 - 1].slice(0, 3)})`; tag = `${year}_Q${q}`; }
+  else if (/^q[1-4]$/.test(period)) {
+    // Quarterly financials are cumulative: Q3 = Jan 1 through Sep 30 (balance sheet as of quarter end)
+    const q = Number(period[1]); const m3 = q * 3;
+    end = cap(`${year}-${pad(m3)}-${pad(lastDay(m3))}`);
+    label = `Through Q${q} ${year} (Jan 1 – ${fmtDate(end)})`; tag = `${year}_Q${q}`;
+  }
   else if (/^m\d{1,2}$/.test(period)) { const m = Number(period.slice(1)); start = `${year}-${pad(m)}-01`; end = `${year}-${pad(m)}-${pad(lastDay(m))}`; label = `${MONTH_NAMES[m - 1]} ${year}`; tag = `${year}_${pad(m)}`; }
   return { start, end, asOf: cap(end), label, tag, period };
 }
@@ -212,7 +217,7 @@ export function BookkeepingShell({ session, showToast }) {
         <select value={period} onChange={e => setPeriod(e.target.value)} style={{ padding: "6px 10px", border: `1px solid ${theme.border}`, borderRadius: theme.radiusSm, fontSize: 13, fontFamily: "'DM Sans', sans-serif", background: theme.surface }}>
           <option value="year">Full year</option>
           <option value="ytd">Year to date</option>
-          <option value="q1">Q1 (Jan–Mar)</option><option value="q2">Q2 (Apr–Jun)</option><option value="q3">Q3 (Jul–Sep)</option><option value="q4">Q4 (Oct–Dec)</option>
+          <option value="q1">Through Q1 (Jan–Mar)</option><option value="q2">Through Q2 (Jan–Jun)</option><option value="q3">Through Q3 (Jan–Sep)</option><option value="q4">Through Q4 (full year)</option>
           {months.slice(1).map((m, i) => <option key={m} value={`m${i + 1}`}>{m}</option>)}
         </select>
       </div>
