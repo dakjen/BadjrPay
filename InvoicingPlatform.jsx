@@ -54,7 +54,7 @@ const defaultData = {
   clients: [],
   categories: [],
   services: [], projects: [], invoices: [],
-  settings: { companyName: "", companyAddress: "", companyPhone: "", taxRate: 25 },
+  settings: { companyName: "", companyAddress: "", companyPhone: "", taxState: "MD", taxLocalRate: 3.2, taxFiling: "single" },
 };
 
 // ═══════════════════════════════════════
@@ -191,9 +191,10 @@ async function generateInvoicePDF(invoice, settings, client) {
     doc.setFont("helvetica", "bold");
     doc.text(fmt(t), margin + cW - 3, y, { align: "right" });
     doc.setFont("helvetica", "normal");
-    const lineH = Math.max(desc.length * 4.5, 7);
-    y += lineH;
-    doc.setDrawColor(...L); doc.line(margin, y - 1.5, margin + cW, y - 1.5);
+    // Separator sits just under this row's last text line (baseline + descender), never through the next row
+    const bottom = y + (desc.length - 1) * 4.5 + 2.8;
+    doc.setDrawColor(...L); doc.line(margin, bottom, margin + cW, bottom);
+    y += Math.max(desc.length * 4.5, 7) + 1.5;
   });
 
   y += 8;
@@ -776,8 +777,15 @@ export default function InvoicingPlatform() {
 // ═══════════════════════════════════════
 // VIEWS
 // ═══════════════════════════════════════
+const monthlyOfPlan = (p) => { const per = p.amount || 0, n = p.intervalCount || 1; return p.interval === "year" ? per / (12 * n) : p.interval === "week" ? per * 52 / 12 / n : per / n; };
 function DashboardView({ data, totalRevenue, outstanding, overdueCount, draftCount, setPage, setModal, updateInvoiceStatus, handleDownloadPDF, handleSendEmail }) {
   const recent = [...data.invoices].sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || "")).slice(0, 5);
+  const [mrr, setMrr] = useState(null);
+  useEffect(() => {
+    fetch("/api/billing?view=subscriptions", { cache: "no-store" }).then(r => r.ok ? r.json() : null)
+      .then(d => setMrr((d?.subscriptions || []).filter(p => ["active", "trialing", "past_due"].includes(p.status) && p.stripeSubscriptionId && !p.cancelAtPeriodEnd).reduce((s, p) => s + monthlyOfPlan(p), 0)))
+      .catch(() => setMrr(0));
+  }, []);
   return <div>
     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 24 }}>
       <h1 style={{ margin: 0, fontFamily: "'Fraunces', serif", fontSize: 24, fontWeight: 700 }}>Dashboard</h1>
@@ -786,8 +794,9 @@ function DashboardView({ data, totalRevenue, outstanding, overdueCount, draftCou
     <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginBottom: 28 }}>
       <StatCard label="Revenue" value={fmt(totalRevenue)} icon={Icons.dollar} color={theme.success} />
       <StatCard label="Overdue balance" value={fmt(outstanding)} icon={Icons.clock} color={theme.warning} />
-      <StatCard label="Overdue" value={overdueCount} icon={Icons.invoice} color={theme.danger} />
-      <StatCard label="Drafts" value={draftCount} icon={Icons.edit} color={theme.textMuted} />
+      <StatCard label="Overdue invoices" value={overdueCount} icon={Icons.invoice} color={theme.danger} />
+      <StatCard label="MRR" value={mrr == null ? "…" : fmt(mrr)} icon={Icons.card} color={theme.accent} />
+      <StatCard label="ARR (approx.)" value={mrr == null ? "…" : fmt(mrr * 12)} icon={Icons.card} color={theme.accent} />
     </div>
     <div style={{ background: theme.surface, borderRadius: theme.radius, border: `1px solid ${theme.borderLight}`, overflow: "hidden" }}>
       <div style={{ padding: "14px 18px", borderBottom: `1px solid ${theme.borderLight}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -1381,8 +1390,14 @@ function SettingsView({ settings, onSave }) {
 
     <div style={{ background: theme.surface, borderRadius: theme.radius, border: `1px solid ${theme.borderLight}`, padding: "20px 24px", marginBottom: 16 }}>
       <h3 style={{ margin: "0 0 4px", fontFamily: "'Fraunces', serif", fontSize: 16, fontWeight: 600 }}>Taxes</h3>
-      <p style={{ fontSize: 12, color: theme.textMuted, margin: "0 0 14px" }}>Used for the estimated-taxes figure on the Books overview (net income × this rate). A rough planning number, not tax advice — confirm with your accountant.</p>
-      <div style={{ maxWidth: 220 }}><Input label="Estimated tax rate (%)" type="number" min="0" max="60" step="0.5" value={form.taxRate ?? 25} onChange={e => set("taxRate", e.target.value)} /></div>
+      <p style={{ fontSize: 12, color: theme.textMuted, margin: "0 0 14px" }}>Drives the estimated-taxes card on the Books overview: self-employment tax + federal brackets + the state where the owners file. Planning numbers only — confirm with your accountant.</p>
+      <div className="r-g" style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
+        <Select label="Owners file state taxes in" value={form.taxState || "MD"} onChange={e => set("taxState", e.target.value)}>
+          <option value="MD">Maryland</option><option value="DC">District of Columbia</option><option value="VA">Virginia</option><option value="NY">New York (outside NYC)</option><option value="NYC">New York City</option><option value="NONE">No state income tax</option>
+        </Select>
+        {(form.taxState || "MD") === "MD" ? <Input label="Maryland county rate (%)" type="number" min="0" max="4" step="0.05" value={form.taxLocalRate ?? 3.2} onChange={e => set("taxLocalRate", e.target.value)} placeholder="3.2" /> : <div />}
+        <Select label="Owners' filing status" value={form.taxFiling || "single"} onChange={e => set("taxFiling", e.target.value)}><option value="single">Single</option><option value="married">Married filing jointly</option></Select>
+      </div>
     </div>
 
 <div style={{ display: "flex", justifyContent: "flex-end" }}><Btn onClick={() => onSave(form)}>Save Settings</Btn></div>

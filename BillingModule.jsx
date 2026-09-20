@@ -265,11 +265,23 @@ function RevenueView({ rev, loading, error, reload }) {
 }
 
 // Single-series column chart: brand hue only, hairline grid, selective labels, per-bar hover, table toggle.
+function useMeasuredWidth(ref, fallback = 720) {
+  const [w, setW] = useState(fallback);
+  useEffect(() => {
+    if (!ref.current || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(entries => { const cw = entries[0]?.contentRect?.width; if (cw) setW(Math.max(280, Math.floor(cw))); });
+    ro.observe(ref.current);
+    return () => ro.disconnect();
+  }, []);
+  return w;
+}
+
 function MonthlyChart({ months }) {
   const [hover, setHover] = useState(null);
   const [showTable, setShowTable] = useState(false);
   const wrapRef = useRef(null);
-  const W = 720, H = 220, padL = 52, padR = 16, padT = 22, padB = 30;
+  const W = useMeasuredWidth(wrapRef);
+  const H = 260, padL = 56, padR = 16, padT = 26, padB = 30;
   const plotW = W - padL - padR, plotH = H - padT - padB;
   const max = Math.max(0, ...months.map(m => m.total));
   const niceMax = (() => { if (max <= 0) return 100; const p = Math.pow(10, Math.floor(Math.log10(max))); const n = max / p; const step = n <= 1 ? 1 : n <= 2 ? 2 : n <= 5 ? 5 : 10; return step * p; })();
@@ -283,8 +295,8 @@ function MonthlyChart({ months }) {
   const allZero = max <= 0;
 
   return <div style={{ padding: "16px 18px 8px" }}>
-    <div ref={wrapRef} style={{ position: "relative" }}>
-      <svg viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", height: "auto", display: "block", fontFamily: sans }} role="img" aria-label="Revenue by month, last 12 months">
+    <div ref={wrapRef} style={{ position: "relative", width: "100%" }}>
+      <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} style={{ display: "block", fontFamily: sans }} role="img" aria-label="Revenue by month, last 12 months">
         {ticks.map(t => <g key={t}>
           <line x1={padL} x2={W - padR} y1={y(t)} y2={y(t)} stroke={theme.borderLight} strokeWidth="1" />
           <text x={padL - 8} y={y(t) + 4} textAnchor="end" fontSize="11" fill={theme.textMuted} style={{ fontVariantNumeric: "tabular-nums" }}>{fmtCompact(t)}</text>

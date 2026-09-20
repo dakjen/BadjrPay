@@ -1,5 +1,6 @@
 "use client";
 import { useState, useEffect, useRef } from "react";
+import { estimateTaxes, nextQuarterlyDue } from "./lib/tax";
 import { jsPDF } from "jspdf";
 
 // ── Shared helpers (duplicated from InvoicingPlatform to avoid refactoring monolith) ──
@@ -233,26 +234,39 @@ const addInterval = (iso, interval, count = 1) => {
 };
 const fmtK = (n) => Math.abs(n) >= 1000 ? `$${(n / 1000).toFixed(Math.abs(n) >= 10000 ? 0 : 1)}k` : `$${Math.round(n)}`;
 
+function useMeasuredWidth(ref, fallback = 640) {
+  const [w, setW] = useState(fallback);
+  useEffect(() => {
+    if (!ref.current || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(entries => { const cw = entries[0]?.contentRect?.width; if (cw) setW(Math.max(280, Math.floor(cw))); });
+    ro.observe(ref.current);
+    return () => ro.disconnect();
+  }, []);
+  return w;
+}
+
 // Column chart: stacked or grouped, thin marks, hairline grid, per-band hover tooltip, legend for ≥2 series, table toggle.
-function ColumnChart({ buckets, series, stacked = true, emptyMessage = "Nothing to show yet" }) {
+function ColumnChart({ buckets, series, stacked = true, height = 260, emptyMessage = "Nothing to show yet" }) {
   const [hover, setHover] = useState(null);
   const [showTable, setShowTable] = useState(false);
-  const W = 640, H = 210, padL = 48, padR = 12, padT = 22, padB = 28;
+  const wrapRef = useRef(null);
+  const W = useMeasuredWidth(wrapRef);
+  const H = height, padL = 56, padR = 16, padT = 26, padB = 30;
   const plotW = W - padL - padR, plotH = H - padT - padB;
   const totalOf = (b) => series.reduce((t, sr) => t + (b.values[sr.key] || 0), 0);
   const max = Math.max(0, ...buckets.map(b => stacked ? totalOf(b) : Math.max(...series.map(sr => b.values[sr.key] || 0))));
   const niceMax = (() => { if (max <= 0) return 100; const p = Math.pow(10, Math.floor(Math.log10(max))); const n = max / p; const step = n <= 1 ? 1 : n <= 2 ? 2 : n <= 5 ? 5 : 10; return step * p; })();
   const y = (v) => padT + plotH - (v / niceMax) * plotH;
   const band = plotW / Math.max(1, buckets.length);
-  const groupW = stacked ? Math.min(24, band * 0.55) : Math.min(24 * series.length + 2 * (series.length - 1), band * 0.7);
+  const groupW = stacked ? Math.min(28, band * 0.55) : Math.min(24 * series.length + 2 * (series.length - 1), band * 0.7);
   const barW = stacked ? groupW : (groupW - 2 * (series.length - 1)) / series.length;
   const maxIdx = buckets.reduce((bi, b, i) => (totalOf(b) > totalOf(buckets[bi]) ? i : bi), 0);
   const allZero = max <= 0;
   const roundedTop = (x, top, w, h) => { const r = Math.min(4, h, w / 2); return `M${x},${top + h} v${-(h - r)} a${r},${r} 0 0 1 ${r},${-r} h${w - 2 * r} a${r},${r} 0 0 1 ${r},${r} v${h - r} z`; };
 
   return <div>
-    <div style={{ position: "relative" }}>
-      <svg viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", height: "auto", display: "block", fontFamily: "'DM Sans', sans-serif" }} role="img">
+    <div ref={wrapRef} style={{ position: "relative", width: "100%" }}>
+      <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} style={{ display: "block", fontFamily: "'DM Sans', sans-serif" }} role="img">
         {[0, 0.25, 0.5, 0.75, 1].map(f => <g key={f}><line x1={padL} x2={W - padR} y1={y(f * niceMax)} y2={y(f * niceMax)} stroke={theme.borderLight} strokeWidth="1" /><text x={padL - 8} y={y(f * niceMax) + 4} textAnchor="end" fontSize="11" fill={theme.textMuted}>{fmtK(f * niceMax)}</text></g>)}
         {buckets.map((b, i) => {
           const x0 = padL + i * band + (band - groupW) / 2;
@@ -367,6 +381,36 @@ function SuggestedMatches({ data, act, showToast, canInput, compact = false, onR
   </div>;
 }
 
+function TaxCard({ tax, card, h3, sub }) {
+  const [open, setOpen] = useState(false);
+  if (!tax) return null;
+  const est = estimateTaxes({ netIncome: tax.netIncomeYtd, owners: tax.owners, filing: tax.filing, state: tax.state, localRate: tax.localRate });
+  const due = nextQuarterlyDue();
+  const pct = (est.effectiveRate * 100).toFixed(1);
+  return <div style={{ ...card, marginBottom: 20 }}>
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 16, flexWrap: "wrap" }}>
+      <div>
+        <h3 style={h3}>Estimated taxes to set aside</h3>
+        <div style={sub}>On {fmt(est.profit)} profit so far in {tax.year} · {est.stateName} · {est.owners} owner{est.owners === 1 ? "" : "s"}</div>
+      </div>
+      <div style={{ textAlign: "right" }}>
+        <div style={{ fontFamily: "'Fraunces', serif", fontSize: 28, fontWeight: 700, color: theme.danger, lineHeight: 1 }}>{fmt(est.total)}</div>
+        <div style={{ fontSize: 12, color: theme.textMuted, marginTop: 4 }}>≈ {pct}% of profit · {fmt(est.perOwner.total)} per owner</div>
+      </div>
+    </div>
+    {est.profit <= 0 ? <div style={{ fontSize: 13, color: theme.textMuted }}>No taxable profit yet this year.</div> : <>
+      <div style={{ display: "grid", gap: 6, marginTop: 6 }}>
+        {est.rows.map(r => <div key={r.key} style={{ display: "flex", justifyContent: "space-between", fontSize: 13, padding: "6px 0", borderBottom: `1px solid ${theme.borderLight}` }}><span style={{ color: theme.textSecondary }}>{r.label}</span><span style={{ fontWeight: 600, fontVariantNumeric: "tabular-nums" }}>{fmt(r.amount)}</span></div>)}
+      </div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 12, flexWrap: "wrap", gap: 8 }}>
+        <div style={{ fontSize: 12, color: theme.textSecondary }}>Next {due.label} due <b>{fmtDate(due.iso)}</b>. Jurisdiction and filing status are in Settings → Taxes.</div>
+        <button onClick={() => setOpen(o => !o)} style={{ background: "none", border: "none", color: theme.textMuted, fontSize: 12, cursor: "pointer", fontFamily: "'DM Sans', sans-serif" }}>{open ? "Hide assumptions" : "How this is calculated"}</button>
+      </div>
+      {open && <ul style={{ margin: "10px 0 0", paddingLeft: 18, fontSize: 12, color: theme.textMuted, lineHeight: 1.6 }}>{est.assumptions.map((a, i) => <li key={i}>{a}</li>)}<li>An estimate for planning, not tax advice — your accountant can refine it.</li></ul>}
+    </>}
+  </div>;
+}
+
 function BkDashboard({ data, filterYear, onGoTo }) {
   const [allTx, setAllTx] = useState(null);   // unfiltered ledger for the trailing-6-month chart
   const [plans, setPlans] = useState([]);      // recurring plans (Stripe) for the forecast
@@ -437,10 +481,6 @@ function BkDashboard({ data, filterYear, onGoTo }) {
     if (totals && totals[filterYear] && totals[filterYear].flagged) flagged.push({ name: c.name, total: totals[filterYear].total });
   }
 
-  const activePlans = plans.filter(p => ["active", "trialing", "past_due"].includes(p.status) && p.stripeSubscriptionId && !p.cancelAtPeriodEnd);
-  const mrr = activePlans.reduce((s, p) => s + monthlyOf(p), 0);
-  const taxRate = Number(data.taxRate ?? 25);
-  const estTax = Math.max(0, net) * (taxRate / 100);
 
   const card = { background: theme.surface, border: `1px solid ${theme.borderLight}`, borderRadius: theme.radius, padding: 20 };
   const h3 = { margin: "0 0 4px", fontFamily: "'Fraunces', serif", fontSize: 16, fontWeight: 600 };
@@ -452,12 +492,6 @@ function BkDashboard({ data, filterYear, onGoTo }) {
       <StatCard label="Expenses" value={fmt(expenses)} color={theme.danger} />
       <StatCard label="Net Income" value={fmt(net)} color={net >= 0 ? theme.success : theme.danger} />
       <StatCard label="Receivables" value={fmt(receivables)} color={theme.blue} />
-      <StatCard label="Unreconciled" value={unreconciled} color={theme.warning} />
-    </div>
-    <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginBottom: 20 }}>
-      <StatCard label="MRR (recurring)" value={fmt(mrr)} color={theme.accent} />
-      <StatCard label="ARR (approx.)" value={fmt(mrr * 12)} color={theme.accent} />
-      <StatCard label={`Est. taxes @ ${taxRate}%`} value={fmt(estTax)} color={theme.danger} />
     </div>
     <SuggestedMatches data={data} compact onReview={() => onGoTo && onGoTo("reconcile")} />
 
@@ -466,19 +500,18 @@ function BkDashboard({ data, filterYear, onGoTo }) {
       {flagged.map((f, i) => <div key={i} style={{ color: theme.text, padding: "2px 0" }}>{f.name}: {fmt(f.total)} paid</div>)}
     </div>}
 
-    <div className="r-g" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20, marginBottom: 20 }}>
-      <div style={card}>
-        <h3 style={h3}>Money in vs. out</h3>
-        <div style={sub}>Last 6 months, from the ledger</div>
-        {allTx === null ? <div style={{ color: theme.textMuted, fontSize: 13, padding: "40px 0", textAlign: "center" }}>Loading…</div> :
-          <ColumnChart buckets={past} stacked={false} series={[{ key: "in", label: "Money in", color: CHART_COLORS[0] }, { key: "out", label: "Money out", color: CHART_COLORS[2] }]} emptyMessage="No ledger activity in the last 6 months" />}
-      </div>
-      <div style={card}>
-        <h3 style={h3}>Expected income</h3>
-        <div style={sub}>Next 6 months · {fmt(expected6)} scheduled from open invoices, payment plans and recurring plans</div>
-        <ColumnChart buckets={future} stacked series={[{ key: "invoices", label: "Invoices due", color: CHART_COLORS[0] }, { key: "installments", label: "Payment plans", color: CHART_COLORS[1] }, { key: "recurring", label: "Recurring plans", color: CHART_COLORS[2] }]} emptyMessage="Nothing scheduled — send an invoice or set up a recurring plan" />
-      </div>
+    <div style={{ ...card, marginBottom: 20 }}>
+      <h3 style={h3}>Money in vs. out</h3>
+      <div style={sub}>Last 6 months, from the ledger</div>
+      {allTx === null ? <div style={{ color: theme.textMuted, fontSize: 13, padding: "60px 0", textAlign: "center" }}>Loading…</div> :
+        <ColumnChart buckets={past} stacked={false} series={[{ key: "in", label: "Money in", color: CHART_COLORS[0] }, { key: "out", label: "Money out", color: CHART_COLORS[2] }]} emptyMessage="No ledger activity in the last 6 months" />}
     </div>
+    <div style={{ ...card, marginBottom: 20 }}>
+      <h3 style={h3}>Expected income</h3>
+      <div style={sub}>Next 6 months · {fmt(expected6)} scheduled from open invoices, payment plans and recurring plans</div>
+      <ColumnChart buckets={future} stacked series={[{ key: "invoices", label: "Invoices due", color: CHART_COLORS[0] }, { key: "installments", label: "Payment plans", color: CHART_COLORS[1] }, { key: "recurring", label: "Recurring plans", color: CHART_COLORS[2] }]} emptyMessage="Nothing scheduled — send an invoice or set up a recurring plan" />
+    </div>
+    <TaxCard tax={data.tax} card={card} h3={h3} sub={sub} />
 
     <div style={card}>
       <h3 style={{ ...h3, marginBottom: 14 }}>Spending by Category</h3>
