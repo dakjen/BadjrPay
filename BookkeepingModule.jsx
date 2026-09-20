@@ -169,8 +169,7 @@ export function BookkeepingShell({ session, showToast }) {
 
   const tabs = [
     { id: "dashboard", label: "Overview" },
-    { id: "payroll", label: "Payroll" },
-    { id: "contractors", label: "Contractors" },
+    { id: "people", label: "Payroll & Contractors" },
     { id: "ledger", label: "Ledger" },
     { id: "pnl", label: "P&L" },
     { id: "balance_sheet", label: "Balance Sheet" },
@@ -211,8 +210,12 @@ export function BookkeepingShell({ session, showToast }) {
       {tab === "ledger" && <LedgerView data={data} act={act} showToast={showToast} canInput={canInput} canEdit={canEdit} />}
       {tab === "import" && (canInput ? <CSVImportView data={data} act={act} showToast={showToast} reload={reload} /> : <Empty message="You don't have permission to import data." />)}
       {tab === "reconcile" && <ReconcileView data={data} act={act} showToast={showToast} canInput={canInput} />}
-      {tab === "payroll" && <PayrollView data={data} act={act} showToast={showToast} canInput={canInput} canEdit={canEdit} />}
-      {tab === "contractors" && <ContractorView data={data} act={act} showToast={showToast} canEdit={canEdit} filterYear={filterYear} />}
+      {tab === "people" && <>
+        <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: theme.textSecondary, margin: "4px 0 10px" }}>Payroll (W-2)</div>
+        <PayrollView data={data} act={act} showToast={showToast} canInput={canInput} canEdit={canEdit} />
+        <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: theme.textSecondary, margin: "32px 0 10px", paddingTop: 24, borderTop: `1px solid ${theme.borderLight}` }}>Contractors (1099)</div>
+        <ContractorView data={data} act={act} showToast={showToast} canEdit={canEdit} filterYear={filterYear} />
+      </>}
       {tab === "pnl" && <PnLView filterYear={filterYear} filterMonth={filterMonth} showToast={showToast} data={data} act={act} companyName={data?.companyName} />}
       {tab === "balance_sheet" && <BalanceSheetView filterYear={filterYear} showToast={showToast} data={data} act={act} companyName={data?.companyName} />}
       {tab === "accounts" && <ChartOfAccountsView data={data} act={act} showToast={showToast} canEdit={canEdit} />}
