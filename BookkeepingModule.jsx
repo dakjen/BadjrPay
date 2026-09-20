@@ -440,7 +440,7 @@ function BkDashboard({ data, filterYear, onGoTo }) {
   // Next 6 months: what's expected in — invoice balances by due date, payment-plan installments, recurring plans
   const futureKeys = Array.from({ length: 6 }, (_, i) => shiftMonth(thisMonth, i));
   const future = futureKeys.map(k => ({ key: k, label: monthLabel(k), current: k === thisMonth, values: { invoices: 0, installments: 0, recurring: 0 } }));
-  const bucketFor = (iso) => { const k = monthKeyOf(iso); return future.find(b => b.key === (k && k > thisMonth ? k : thisMonth)) || future[0]; };
+  const bucketFor = (iso) => { const k = monthKeyOf(iso); const key = k && k > thisMonth ? k : thisMonth; return future.find(b => b.key === key) || null; }; // beyond the window → not shown
   for (const inv of openInvoices) {
     const balance = (inv.total || 0) - (inv.amountPaid || 0);
     const pending = (inv.installments || []).filter(x => x.status !== "paid");
@@ -452,6 +452,16 @@ function BkDashboard({ data, filterYear, onGoTo }) {
     }
   }
   const lastKey = futureKeys[futureKeys.length - 1];
+  const RECUR_MONTHS = { month: 1, quarter: 3, year: 12 };
+  for (const inv of data.invoices || []) {
+    if (!inv.recurring || !RECUR_MONTHS[inv.recurring] || inv.status === "draft") continue;
+    let d = inv.recurringNext || addInterval(inv.dueDate || today(), "month", RECUR_MONTHS[inv.recurring]);
+    for (let guard = 0; guard < 12 && monthKeyOf(d) <= lastKey; guard++) {
+      const b = future.find(x => x.key === monthKeyOf(d)) || (monthKeyOf(d) < thisMonth ? future[0] : null);
+      if (b) b.values.recurring += inv.total || 0;
+      d = addInterval(d, "month", RECUR_MONTHS[inv.recurring]);
+    }
+  }
   for (const p of plans) {
     if (!["active", "trialing", "past_due"].includes(p.status) || !p.currentPeriodEnd || p.cancelAtPeriodEnd) continue;
     let d = p.currentPeriodEnd;

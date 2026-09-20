@@ -46,6 +46,9 @@ const theme = {
 
 const genId = () => Math.random().toString(36).substr(2, 9);
 const SIDEBAR_BOTTOM = ["users", "settings"]; // icon-only, pinned at the bottom of the sidebar
+const RECURRING = { month: { label: "Monthly", months: 1 }, quarter: { label: "Quarterly", months: 3 }, year: { label: "Annually", months: 12 } };
+const addMonths = (iso, n) => { if (!iso) return ""; const [y, m, d] = iso.split("-").map(Number); const dt = new Date(y, m - 1 + n, d); return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`; };
+const recurringMonthly = (inv) => inv.recurring && RECURRING[inv.recurring] ? (inv.total || 0) / RECURRING[inv.recurring].months : 0;
 const fmt = (n) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(n);
 const fmtDate = (d) => { if (!d) return "—"; try { const s = String(d).trim(); const iso = /^\d{4}-\d{2}-\d{2}/.test(s) ? s.slice(0, 10) : new Date(s).toISOString().split("T")[0]; const [y, m, day] = iso.split("-"); return new Date(Number(y), Number(m) - 1, Number(day)).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }); } catch { return "—"; } };
 const today = () => new Date().toISOString().split("T")[0];
@@ -656,6 +659,16 @@ export default function InvoicingPlatform() {
 
   const deleteInvoice = (id) => updateNow("invoices", data.invoices.filter(i => i.id !== id));
 
+  // Recurring invoice came around again: copy it into a fresh draft and move the renewal date forward
+  const createRenewal = (src) => {
+    const months = RECURRING[src.recurring]?.months || 12;
+    const issue = src.recurringNext || today();
+    const num = `INV-${String(data.invoices.length + 1).padStart(4, "0")}`;
+    const next = { ...src, id: genId(), number: num, status: "draft", amountPaid: 0, paidAt: "", sentAt: "", createdAt: today(), dueDate: addMonths(issue, 1), recurringNext: addMonths(issue, months), installments: [], onlinePayments: [] };
+    updateNow("invoices", [...data.invoices.map(i => i.id === src.id ? { ...i, recurringNext: addMonths(issue, months) } : i), next]);
+    showToast(`${num} created from ${src.number} — review and send it`);
+  };
+
   const markInstallmentPaid = (invoiceId, installmentId) => {
     const today_ = today();
     updateNow("invoices", data.invoices.map(inv => {
@@ -743,7 +756,7 @@ export default function InvoicingPlatform() {
       {/* Content */}
       <main style={{ flex: 1, padding: isMobile ? "16px 14px" : "24px 28px", paddingBottom: isMobile ? 80 : undefined, maxWidth: isMobile ? "100%" : 1400, width: "100%", overflowY: "auto" }}>
         {page === "dashboard" && <DashboardView {...{ data, totalRevenue, outstanding, overdueCount, draftCount, setPage, setModal, updateInvoiceStatus, handleDownloadPDF, handleSendEmail }} />}
-        {page === "invoices" && !viewInvoice && <InvoicesView {...{ data, setModal, setEditItem, setViewInvoice, deleteInvoice, updateInvoiceStatus, handleCopyPayLink, handleDownloadPDF, handleSendEmail, handleSendOverdue }} />}
+        {page === "invoices" && !viewInvoice && <InvoicesView {...{ data, setModal, setEditItem, setViewInvoice, deleteInvoice, updateInvoiceStatus, handleCopyPayLink, handleDownloadPDF, handleSendEmail, handleSendOverdue, createRenewal }} />}
         {page === "invoices" && viewInvoice && <InvoiceDetailView invoice={data.invoices.find(i => i.id === viewInvoice.id) || viewInvoice} data={data} onBack={() => setViewInvoice(null)} updateStatus={updateInvoiceStatus} markPartial={markPartialPayment} markInstallmentPaid={markInstallmentPaid} handleCopyPayLink={handleCopyPayLink} handleDownloadPDF={handleDownloadPDF} handleSendEmail={handleSendEmail} handleSendOverdue={handleSendOverdue} />}
         {page === "clients" && <ClientsView {...{ data, setModal, setEditItem, deleteClient }} />}
         {page === "projects" && <ProjectsView {...{ data, setModal, setEditItem, deleteProject, saveProject }} />}
@@ -781,6 +794,7 @@ const monthlyOfPlan = (p) => { const per = p.amount || 0, n = p.intervalCount ||
 function DashboardView({ data, totalRevenue, outstanding, overdueCount, draftCount, setPage, setModal, updateInvoiceStatus, handleDownloadPDF, handleSendEmail }) {
   const recent = [...data.invoices].sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || "")).slice(0, 5);
   const [mrr, setMrr] = useState(null);
+  const invoiceMrr = data.invoices.filter(i => i.recurring && i.status !== "draft").reduce((s, i) => s + recurringMonthly(i), 0);
   useEffect(() => {
     fetch("/api/billing?view=subscriptions", { cache: "no-store" }).then(r => r.ok ? r.json() : null)
       .then(d => setMrr((d?.subscriptions || []).filter(p => ["active", "trialing", "past_due"].includes(p.status) && p.stripeSubscriptionId && !p.cancelAtPeriodEnd).reduce((s, p) => s + monthlyOfPlan(p), 0)))
@@ -795,8 +809,8 @@ function DashboardView({ data, totalRevenue, outstanding, overdueCount, draftCou
       <StatCard label="Revenue" value={fmt(totalRevenue)} icon={Icons.dollar} color={theme.success} />
       <StatCard label="Overdue balance" value={fmt(outstanding)} icon={Icons.clock} color={theme.warning} />
       <StatCard label="Overdue invoices" value={overdueCount} icon={Icons.invoice} color={theme.danger} />
-      <StatCard label="MRR" value={mrr == null ? "…" : fmt(mrr)} icon={Icons.card} color={theme.accent} />
-      <StatCard label="ARR (approx.)" value={mrr == null ? "…" : fmt(mrr * 12)} icon={Icons.card} color={theme.accent} />
+      <StatCard label="MRR" value={mrr == null ? "…" : fmt(mrr + invoiceMrr)} icon={Icons.card} color={theme.accent} />
+      <StatCard label="ARR (approx.)" value={mrr == null ? "…" : fmt((mrr + invoiceMrr) * 12)} icon={Icons.card} color={theme.accent} />
     </div>
     <div style={{ background: theme.surface, borderRadius: theme.radius, border: `1px solid ${theme.borderLight}`, overflow: "hidden" }}>
       <div style={{ padding: "14px 18px", borderBottom: `1px solid ${theme.borderLight}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -826,8 +840,9 @@ function DashboardView({ data, totalRevenue, outstanding, overdueCount, draftCou
   </div>;
 }
 
-function InvoicesView({ data, setModal, setEditItem, setViewInvoice, deleteInvoice, updateInvoiceStatus, handleCopyPayLink, handleDownloadPDF, handleSendEmail, handleSendOverdue }) {
+function InvoicesView({ data, setModal, setEditItem, setViewInvoice, deleteInvoice, updateInvoiceStatus, handleCopyPayLink, handleDownloadPDF, handleSendEmail, handleSendOverdue, createRenewal }) {
   const [filter, setFilter] = useState("all");
+  const renewalsDue = data.invoices.filter(i => i.recurring && i.recurringNext && i.recurringNext <= addMonths(today(), 1));
   const filtered = data.invoices.filter(i => filter === "all" || i.status === filter).sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
   const tabs = [{ id: "all", label: "All" }, { id: "draft", label: "Draft" }, { id: "sent", label: "Sent" }, { id: "paid", label: "Paid" }, { id: "overdue", label: "Overdue" }];
   return <div>
@@ -835,6 +850,10 @@ function InvoicesView({ data, setModal, setEditItem, setViewInvoice, deleteInvoi
       <h1 style={{ margin: 0, fontFamily: "'Fraunces', serif", fontSize: 24, fontWeight: 700 }}>Invoices</h1>
       <Btn icon={Icons.plus} onClick={() => setModal("invoice")}>New Invoice</Btn>
     </div>
+    {renewalsDue.map(inv => <div key={inv.id} style={{ background: theme.accentLight, color: theme.accent, borderRadius: theme.radiusSm, padding: "10px 14px", fontSize: 13, fontWeight: 500, marginBottom: 10, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+      <span>↻ <b>{inv.number}</b> ({inv.clientName}) renews {RECURRING[inv.recurring]?.label.toLowerCase()} — next renewal {fmtDate(inv.recurringNext)} for {fmt(inv.total || 0)}.</span>
+      <Btn size="sm" onClick={() => createRenewal(inv)}>Create renewal invoice</Btn>
+    </div>)}
     <div style={{ display: "flex", gap: 4, marginBottom: 16 }}>
       {tabs.map(t => <button key={t.id} onClick={() => setFilter(t.id)} style={{ padding: "6px 14px", border: "none", borderRadius: 20, fontSize: 12, fontWeight: 500, cursor: "pointer", fontFamily: "'DM Sans', sans-serif", background: filter === t.id ? theme.accent : theme.surfaceAlt, color: filter === t.id ? "#fff" : theme.textSecondary }}>{t.label}</button>)}
     </div>
@@ -847,7 +866,7 @@ function InvoicesView({ data, setModal, setEditItem, setViewInvoice, deleteInvoi
             const balance = (inv.total || 0) - (inv.amountPaid || 0);
             return <tr key={inv.id} style={{ borderBottom: `1px solid ${theme.borderLight}`, cursor: "pointer" }} onClick={() => setViewInvoice(inv)}>
               <td style={{ padding: "10px 14px" }}>
-                <div style={{ fontWeight: 600 }}>{inv.number}</div>
+                <div style={{ fontWeight: 600 }}>{inv.number}{inv.recurring && RECURRING[inv.recurring] && <span title={`Recurring ${RECURRING[inv.recurring].label.toLowerCase()}`} style={{ marginLeft: 6, fontSize: 10, fontWeight: 700, color: theme.accent, background: theme.accentLight, padding: "2px 6px", borderRadius: 10, verticalAlign: "middle" }}>↻ {RECURRING[inv.recurring].label}</span>}</div>
                 {inv.notes && <div style={{ fontSize: 11, color: theme.textMuted, marginTop: 2, maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{inv.notes}</div>}
               </td>
               <td style={{ padding: "10px 14px" }}>
@@ -1496,6 +1515,10 @@ function InvoiceForm({ item, data, onSave, onCancel }) {
     </div>
     <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
       <Input label="Due Date" type="date" value={form.dueDate} onChange={e => set("dueDate", e.target.value)} />
+      <Select label="Recurring" value={form.recurring || ""} onChange={e => { const r = e.target.value; setForm(f => ({ ...f, recurring: r, recurringNext: r ? (f.recurringNext || addMonths(f.dueDate || today(), RECURRING[r].months)) : "" })); }}>
+        <option value="">One-time</option>{Object.entries(RECURRING).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+      </Select>
+      {form.recurring && <Input label="Next renewal" type="date" value={form.recurringNext || ""} onChange={e => set("recurringNext", e.target.value)} />}
       <Input label="Deposit Amount (optional)" type="number" value={form.deposit || ""} onChange={e => set("deposit", e.target.value)} placeholder="0.00" />
     </div>
     <Select label="Project (optional)" value={form.projectId} onChange={e => set("projectId", e.target.value)}><option value="">No Project</option>{data.projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</Select>
