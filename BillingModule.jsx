@@ -207,8 +207,8 @@ function SetupCard({ baseUrl }) {
     <div style={{ padding: "16px 18px", fontSize: 13, color: theme.textSecondary, lineHeight: 1.7 }}>
       <ol style={{ margin: 0, paddingLeft: 20 }}>
         <li>In Stripe → <b>Developers → API keys</b>, copy the <b>Secret key</b> and add it to Vercel as <span style={code}>STRIPE_SECRET_KEY</span>.</li>
-        <li>In Stripe → <b>Developers → Webhooks</b>, add an endpoint pointing to <span style={code}>{webhookUrl}</span> with events <span style={code}>checkout.session.completed</span>, <span style={code}>customer.subscription.*</span>, <span style={code}>invoice.paid</span>, <span style={code}>invoice.payment_failed</span>. Add its signing secret as <span style={code}>STRIPE_WEBHOOK_SECRET</span>.</li>
         <li>Redeploy. Revenue and plans appear here automatically.</li>
+        <li>Then open <b>Recurring Plans</b> and click <b>Set up webhook</b> — the app registers <span style={code}>{webhookUrl}</span> in Stripe for you.</li>
       </ol>
     </div>
   </Card>;
@@ -337,6 +337,7 @@ function MonthlyChart({ months }) {
 // ═══════════════════════════════════════
 function SubscriptionsView({ subs, loading, act, canEdit, showToast, onNew }) {
   const [busy, setBusy] = useState(null);
+  const [settingUp, setSettingUp] = useState(false);
   if (loading && !subs) return <Empty message="Loading…" />;
   if (!subs) return null;
   const list = subs.subscriptions || [];
@@ -345,7 +346,7 @@ function SubscriptionsView({ subs, loading, act, canEdit, showToast, onNew }) {
   const link = (s) => `${subs.baseUrl}/pay/${s.publicToken}`;
 
   return <div>
-    {subs.configured && !subs.webhookConfigured && <Banner tone="warning">Stripe webhook isn't configured yet — statuses and payments update when you click <b>Sync from Stripe</b>. Add <code>STRIPE_WEBHOOK_SECRET</code> to make it automatic.</Banner>}
+    {subs.configured && !subs.webhookConfigured && <Banner tone="warning" action={canEdit && <Btn size="sm" variant="primary" disabled={settingUp} icon={settingUp ? <Spin /> : undefined} onClick={async () => { setSettingUp(true); await act("setup_webhook", {}, r => `Webhook registered in Stripe (${r.events} events) — payments now update automatically`); setSettingUp(false); }}>{settingUp ? "Setting up…" : "Set up webhook"}</Btn>}>Stripe isn't sending events here yet, so statuses and payments only update when you click <b>Sync from Stripe</b>. One click registers the webhook automatically.</Banner>}
 
     <Card title="Recurring plans" style={{ marginBottom: 20 }}>
       {list.length === 0 ? <Empty message="No recurring plans yet. Set one up to bill a client automatically every month." action={canEdit && subs.configured && <Btn size="sm" icon={Ic.plus} onClick={onNew}>New Plan</Btn>} /> :

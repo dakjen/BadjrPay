@@ -7,7 +7,7 @@ import {
   listSubscriptions, listPayments, getSubscription, createSubscription, deleteSubscription,
   markSubscriptionSent, getClientById, getCompanySettings, getOrCreateInvoicePayLink,
 } from "@/lib/billing-db";
-import { syncFromStripe, cancelStripeSubscription, resumeStripeSubscription, createPortalSession, getRevenueDashboard, ensureStripeCustomer } from "@/lib/billing";
+import { syncFromStripe, cancelStripeSubscription, resumeStripeSubscription, createPortalSession, getRevenueDashboard, ensureStripeCustomer, setupWebhook, webhookStatus } from "@/lib/billing";
 import { sendMail } from "@/lib/email";
 import { buildSubscriptionEmailHTML } from "@/lib/billing-email";
 
@@ -26,7 +26,8 @@ export async function GET(req) {
       return NextResponse.json(await getRevenueDashboard(), noStore);
     }
     const [subscriptions, payments] = await Promise.all([listSubscriptions(), listPayments(100)]);
-    return NextResponse.json({ configured: isStripeConfigured(), webhookConfigured: !!process.env.STRIPE_WEBHOOK_SECRET, baseUrl: getBaseUrl(req), subscriptions, payments }, noStore);
+    const webhook = await webhookStatus(getBaseUrl(req));
+    return NextResponse.json({ configured: isStripeConfigured(), webhookConfigured: webhook.configured, webhookUrl: webhook.url, baseUrl: getBaseUrl(req), subscriptions, payments }, noStore);
   } catch (e) {
     return NextResponse.json({ error: e.message }, { status: 500 });
   }
@@ -115,6 +116,12 @@ export async function POST(req) {
         const customerId = await ensureStripeCustomer(client);
         const url = await createPortalSession(customerId, `${baseUrl}/#billing`);
         return NextResponse.json({ ok: true, url });
+      }
+      case "setup_webhook": {
+        if (!isStripeConfigured()) return NextResponse.json({ error: "Add STRIPE_SECRET_KEY in Vercel first" }, { status: 400 });
+        if (role !== "owner") return NextResponse.json({ error: "Owners only" }, { status: 403 });
+        const result = await setupWebhook(baseUrl);
+        return NextResponse.json({ ok: true, ...result });
       }
       case "sync": {
         if (!isStripeConfigured()) return NextResponse.json({ error: "Stripe is not configured" }, { status: 400 });
