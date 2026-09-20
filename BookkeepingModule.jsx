@@ -168,14 +168,14 @@ export function BookkeepingShell({ session, showToast }) {
 
   const tabs = [
     { id: "dashboard", label: "Overview" },
-    { id: "ledger", label: "Ledger" },
-    { id: "import", label: "Import CSV" },
-    { id: "reconcile", label: "Reconcile" },
     { id: "payroll", label: "Payroll" },
     { id: "contractors", label: "Contractors" },
-    { id: "pnl", label: "P&L Report" },
+    { id: "ledger", label: "Ledger" },
+    { id: "pnl", label: "P&L" },
     { id: "balance_sheet", label: "Balance Sheet" },
+    { id: "reconcile", label: "Reconcile" },
     { id: "accounts", label: "Chart of Accounts" },
+    { id: "import", label: "Import" },
   ];
 
   const years = [];
@@ -206,7 +206,7 @@ export function BookkeepingShell({ session, showToast }) {
     </div>
 
     {loading && !data ? <div style={{ textAlign: "center", padding: 40, color: theme.textMuted }}>Loading...</div> : data && <>
-      {tab === "dashboard" && <BkDashboard data={data} filterYear={filterYear} />}
+      {tab === "dashboard" && <BkDashboard data={data} filterYear={filterYear} onGoTo={setTab} />}
       {tab === "ledger" && <LedgerView data={data} act={act} showToast={showToast} canInput={canInput} canEdit={canEdit} />}
       {tab === "import" && (canInput ? <CSVImportView data={data} act={act} showToast={showToast} reload={reload} /> : <Empty message="You don't have permission to import data." />)}
       {tab === "reconcile" && <ReconcileView data={data} act={act} showToast={showToast} canInput={canInput} />}
@@ -222,11 +222,202 @@ export function BookkeepingShell({ session, showToast }) {
 // ═══════════════════════════════════════
 // DASHBOARD
 // ═══════════════════════════════════════
-function BkDashboard({ data, filterYear }) {
+const CHART_COLORS = ["#2E8B57", "#2B5EA7", "#C4841D"]; // validated categorical trio (light surface)
+const monthKeyOf = (iso) => String(iso || "").slice(0, 7);
+const monthLabel = (key) => { const [y, m] = key.split("-"); return new Date(Number(y), Number(m) - 1, 1).toLocaleDateString("en-US", { month: "short", year: "2-digit" }); };
+const shiftMonth = (key, n) => { const [y, m] = key.split("-").map(Number); const d = new Date(y, m - 1 + n, 1); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`; };
+const addInterval = (iso, interval, count = 1) => {
+  const [y, m, d] = iso.split("-").map(Number);
+  const dt = interval === "year" ? new Date(y + count, m - 1, d) : interval === "week" ? new Date(y, m - 1, d + 7 * count) : new Date(y, m - 1 + count, d);
+  return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`;
+};
+const fmtK = (n) => Math.abs(n) >= 1000 ? `$${(n / 1000).toFixed(Math.abs(n) >= 10000 ? 0 : 1)}k` : `$${Math.round(n)}`;
+
+// Column chart: stacked or grouped, thin marks, hairline grid, per-band hover tooltip, legend for ≥2 series, table toggle.
+function ColumnChart({ buckets, series, stacked = true, emptyMessage = "Nothing to show yet" }) {
+  const [hover, setHover] = useState(null);
+  const [showTable, setShowTable] = useState(false);
+  const W = 640, H = 210, padL = 48, padR = 12, padT = 22, padB = 28;
+  const plotW = W - padL - padR, plotH = H - padT - padB;
+  const totalOf = (b) => series.reduce((t, sr) => t + (b.values[sr.key] || 0), 0);
+  const max = Math.max(0, ...buckets.map(b => stacked ? totalOf(b) : Math.max(...series.map(sr => b.values[sr.key] || 0))));
+  const niceMax = (() => { if (max <= 0) return 100; const p = Math.pow(10, Math.floor(Math.log10(max))); const n = max / p; const step = n <= 1 ? 1 : n <= 2 ? 2 : n <= 5 ? 5 : 10; return step * p; })();
+  const y = (v) => padT + plotH - (v / niceMax) * plotH;
+  const band = plotW / Math.max(1, buckets.length);
+  const groupW = stacked ? Math.min(24, band * 0.55) : Math.min(24 * series.length + 2 * (series.length - 1), band * 0.7);
+  const barW = stacked ? groupW : (groupW - 2 * (series.length - 1)) / series.length;
+  const maxIdx = buckets.reduce((bi, b, i) => (totalOf(b) > totalOf(buckets[bi]) ? i : bi), 0);
+  const allZero = max <= 0;
+  const roundedTop = (x, top, w, h) => { const r = Math.min(4, h, w / 2); return `M${x},${top + h} v${-(h - r)} a${r},${r} 0 0 1 ${r},${-r} h${w - 2 * r} a${r},${r} 0 0 1 ${r},${r} v${h - r} z`; };
+
+  return <div>
+    <div style={{ position: "relative" }}>
+      <svg viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", height: "auto", display: "block", fontFamily: "'DM Sans', sans-serif" }} role="img">
+        {[0, 0.25, 0.5, 0.75, 1].map(f => <g key={f}><line x1={padL} x2={W - padR} y1={y(f * niceMax)} y2={y(f * niceMax)} stroke={theme.borderLight} strokeWidth="1" /><text x={padL - 8} y={y(f * niceMax) + 4} textAnchor="end" fontSize="11" fill={theme.textMuted}>{fmtK(f * niceMax)}</text></g>)}
+        {buckets.map((b, i) => {
+          const x0 = padL + i * band + (band - groupW) / 2;
+          let acc = 0;
+          const marks = series.map((sr, si) => {
+            const v = b.values[sr.key] || 0;
+            if (v <= 0) return null;
+            if (stacked) {
+              const top = y(acc + v), bottom = y(acc); acc += v;
+              const h = Math.max(0, bottom - top - (si > 0 ? 2 : 0));
+              const isTop = series.slice(si + 1).every(s2 => !(b.values[s2.key] > 0));
+              return <path key={sr.key} d={isTop ? roundedTop(x0, bottom - h, barW, h) : `M${x0},${bottom - h} h${barW} v${h} h${-barW} z`} fill={sr.color} opacity={hover === i ? 0.75 : 1} />;
+            }
+            const x = x0 + si * (barW + 2), top = y(v), h = padT + plotH - top;
+            return <path key={sr.key} d={roundedTop(x, top, barW, h)} fill={sr.color} opacity={hover === i ? 0.75 : 1} />;
+          });
+          const total = totalOf(b);
+          return <g key={b.key}>
+            {marks}
+            {stacked && i === maxIdx && total > 0 && <text x={x0 + barW / 2} y={y(total) - 6} textAnchor="middle" fontSize="11" fontWeight="600" fill={theme.textSecondary}>{fmtK(total)}</text>}
+            <text x={padL + i * band + band / 2} y={H - 9} textAnchor="middle" fontSize="11" fill={b.current ? theme.text : theme.textMuted} fontWeight={b.current ? 600 : 400}>{b.label}</text>
+            <rect x={padL + i * band} y={padT} width={band} height={plotH + padB} fill="transparent" onPointerEnter={() => setHover(i)} onPointerLeave={() => setHover(null)} />
+          </g>;
+        })}
+        <line x1={padL} x2={W - padR} y1={padT + plotH} y2={padT + plotH} stroke={theme.border} strokeWidth="1" />
+      </svg>
+      {hover != null && <div style={{ position: "absolute", left: `${((padL + hover * band + band / 2) / W) * 100}%`, top: 0, transform: `translate(${hover >= buckets.length / 2 ? "-100%" : "0"}, 0)`, background: theme.text, color: "#fff", borderRadius: 6, padding: "8px 10px", fontSize: 12, pointerEvents: "none", boxShadow: theme.shadowMd, whiteSpace: "nowrap", zIndex: 2 }}>
+        <div style={{ fontWeight: 600, marginBottom: 4, opacity: 0.85 }}>{buckets[hover].label}</div>
+        {series.map(sr => <div key={sr.key} style={{ display: "flex", alignItems: "center", gap: 8, justifyContent: "space-between" }}><span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}><span style={{ width: 10, height: 2, background: sr.color, display: "inline-block" }} />{sr.label}</span><b>{fmt(buckets[hover].values[sr.key] || 0)}</b></div>)}
+        {stacked && series.length > 1 && <div style={{ borderTop: "1px solid rgba(255,255,255,0.25)", marginTop: 4, paddingTop: 4, display: "flex", justifyContent: "space-between", gap: 8 }}><span>Total</span><b>{fmt(totalOf(buckets[hover]))}</b></div>}
+      </div>}
+      {allZero && <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", color: theme.textMuted, fontSize: 13, pointerEvents: "none" }}>{emptyMessage}</div>}
+    </div>
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 6, flexWrap: "wrap", gap: 8 }}>
+      {series.length > 1 ? <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>{series.map(sr => <span key={sr.key} style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, color: theme.textSecondary }}><span style={{ width: 10, height: 10, borderRadius: 2, background: sr.color, display: "inline-block" }} />{sr.label}</span>)}</div> : <span />}
+      <button onClick={() => setShowTable(v => !v)} style={{ background: "none", border: "none", color: theme.textMuted, fontSize: 12, cursor: "pointer", fontFamily: "'DM Sans', sans-serif" }}>{showTable ? "Hide table" : "Show as table"}</button>
+    </div>
+    {showTable && <table style={{ width: "100%", marginTop: 6, fontSize: 12 }}><thead><tr style={{ borderBottom: `1px solid ${theme.borderLight}` }}><th style={{ textAlign: "left", padding: "6px 8px", color: theme.textMuted, fontWeight: 600 }}>Month</th>{series.map(sr => <th key={sr.key} style={{ textAlign: "right", padding: "6px 8px", color: theme.textMuted, fontWeight: 600 }}>{sr.label}</th>)}</tr></thead><tbody>
+      {buckets.map(b => <tr key={b.key} style={{ borderBottom: `1px solid ${theme.borderLight}` }}><td style={{ padding: "6px 8px" }}>{b.label}</td>{series.map(sr => <td key={sr.key} style={{ padding: "6px 8px", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{fmt(b.values[sr.key] || 0)}</td>)}</tr>)}
+    </tbody></table>}
+  </div>;
+}
+
+// Suggest which unlinked income deposits look like payments for open invoices (amount match, name hint).
+const monthlyOf = (p) => { const per = (p.amount || 0); const n = p.intervalCount || 1; return p.interval === "year" ? per / (12 * n) : p.interval === "week" ? per * 52 / 12 / n : per / n; };
+function suggestInvoiceMatches(transactions, invoices) {
+  const open = (invoices || []).filter(i => i.status !== "draft" && (i.total || 0) - (i.amountPaid || 0) > 0.005);
+  const near = (a, b) => Math.abs(a - b) < 0.011;
+  const out = [];
+  for (const t of transactions || []) {
+    if (t.type !== "income" || t.invoiceId || !(t.amount > 0)) continue;
+    const text = `${t.name || ""} ${t.description || ""} ${t.vendor || ""} ${t.reference || ""}`.toLowerCase();
+    for (const inv of open) {
+      const balance = (inv.total || 0) - (inv.amountPaid || 0);
+      const amounts = [balance, inv.total, inv.deposit, ...(inv.installments || []).filter(x => x.status !== "paid").map(x => x.amount)].filter(a => a > 0);
+      const amountHit = amounts.some(a => near(a, t.amount));
+      const words = (inv.clientName || "").toLowerCase().split(/[^a-z0-9]+/).filter(w => w.length > 2 && !["llc", "inc", "the", "and"].includes(w));
+      const nameHit = words.some(w => text.includes(w));
+      if (!amountHit && !nameHit) continue;
+      const score = (amountHit ? 2 : 0) + (nameHit ? 1 : 0) + (near(balance, t.amount) ? 1 : 0);
+      if (score < 2) continue;
+      out.push({ tx: t, invoice: inv, score, amountHit, nameHit, key: `${t.id}:${inv.id}` });
+    }
+  }
+  out.sort((a, b) => b.score - a.score || (b.tx.date || "").localeCompare(a.tx.date || ""));
+  const seen = new Set();
+  return out.filter(m => { if (seen.has(m.tx.id)) return false; seen.add(m.tx.id); return true; });
+}
+const dismissedKey = "bk_dismissed_matches";
+const getDismissed = () => { try { return new Set(JSON.parse(localStorage.getItem(dismissedKey) || "[]")); } catch { return new Set(); } };
+const addDismissed = (k) => { try { const d = getDismissed(); d.add(k); localStorage.setItem(dismissedKey, JSON.stringify([...d])); } catch {} };
+
+function SuggestedMatches({ data, act, showToast, canInput, compact = false, onReview }) {
+  const [dismissed, setDismissed] = useState(() => (typeof window === "undefined" ? new Set() : getDismissed()));
+  const [busy, setBusy] = useState(null);
+  const matches = suggestInvoiceMatches(data.transactions, data.invoices).filter(m => !dismissed.has(m.key));
+  if (matches.length === 0) return null;
+  if (compact) return <div style={{ background: theme.blueLight, borderRadius: theme.radiusSm, padding: "10px 14px", marginBottom: 20, fontSize: 13, color: theme.blue, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+    <span><b>{matches.length}</b> deposit{matches.length === 1 ? " looks" : "s look"} like invoice payment{matches.length === 1 ? "" : "s"} — approve to mark {matches.length === 1 ? "it" : "them"} paid.</span>
+    <Btn size="sm" variant="blue" onClick={onReview}>Review in Reconcile</Btn>
+  </div>;
+  const approve = async (m) => {
+    setBusy(m.key);
+    const ok = await act("upsert_transaction", { ...m.tx, invoiceId: m.invoice.id, reviewed: true });
+    setBusy(null);
+    if (ok) showToast(`${m.invoice.number} marked ${Math.abs(((m.invoice.total || 0) - (m.invoice.amountPaid || 0)) - m.tx.amount) < 0.011 ? "paid" : "partially paid"} from the ${fmtDate(m.tx.date)} deposit`);
+  };
+  const dismiss = (m) => { addDismissed(m.key); setDismissed(getDismissed()); };
+  return <div style={{ background: theme.surface, border: `1px solid ${theme.borderLight}`, borderRadius: theme.radius, marginBottom: 20, overflow: "hidden" }}>
+    <div style={{ padding: "12px 16px", borderBottom: `1px solid ${theme.borderLight}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+      <span style={{ fontWeight: 600, fontSize: 14, fontFamily: "'Fraunces', serif" }}>Suggested invoice matches</span>
+      <span style={{ fontSize: 12, color: theme.textMuted }}>Approving applies the deposit to the invoice and marks it paid</span>
+    </div>
+    {matches.map(m => {
+      const balance = (m.invoice.total || 0) - (m.invoice.amountPaid || 0);
+      return <div key={m.key} style={{ display: "flex", alignItems: "center", gap: 14, padding: "12px 16px", borderBottom: `1px solid ${theme.borderLight}`, flexWrap: "wrap" }}>
+        <div style={{ flex: "1 1 220px", minWidth: 0 }}>
+          <div style={{ fontSize: 13, fontWeight: 600 }}>{fmt(m.tx.amount)} deposit · {fmtDate(m.tx.date)}</div>
+          <div style={{ fontSize: 12, color: theme.textMuted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.tx.name || m.tx.description || m.tx.reference}</div>
+        </div>
+        <div style={{ color: theme.textMuted, fontSize: 18 }}>→</div>
+        <div style={{ flex: "1 1 200px" }}>
+          <div style={{ fontSize: 13, fontWeight: 600 }}>{m.invoice.number} · {m.invoice.clientName || "—"}</div>
+          <div style={{ fontSize: 12, color: theme.textMuted }}>{fmt(balance)} due{m.amountHit ? " · amount matches" : ""}{m.nameHit ? " · client name in memo" : ""}</div>
+        </div>
+        {canInput && <div style={{ display: "flex", gap: 6 }}>
+          <Btn size="sm" variant="success" icon={BkIcons.check} disabled={busy === m.key} onClick={() => approve(m)}>Approve</Btn>
+          <Btn size="sm" variant="ghost" onClick={() => dismiss(m)}>Not a match</Btn>
+        </div>}
+      </div>;
+    })}
+  </div>;
+}
+
+function BkDashboard({ data, filterYear, onGoTo }) {
+  const [allTx, setAllTx] = useState(null);   // unfiltered ledger for the trailing-6-month chart
+  const [plans, setPlans] = useState([]);      // recurring plans (Stripe) for the forecast
+  useEffect(() => {
+    bkFetch({}).then(d => setAllTx(d.transactions || [])).catch(() => setAllTx([]));
+    fetch("/api/billing?view=subscriptions", { cache: "no-store" }).then(r => r.ok ? r.json() : null).then(d => setPlans(d?.subscriptions || [])).catch(() => {});
+  }, []);
+
   const income = data.transactions.filter(t => t.type === "income").reduce((s, t) => s + Math.abs(t.amount), 0);
   const expenses = data.transactions.filter(t => t.type === "expense").reduce((s, t) => s + Math.abs(t.amount), 0);
   const net = income - expenses;
   const unreconciled = data.transactions.filter(t => !t.reconciled).length;
+  const openInvoices = (data.invoices || []).filter(i => i.status !== "draft" && (i.total || 0) - (i.amountPaid || 0) > 0.005);
+  const receivables = openInvoices.reduce((s, i) => s + ((i.total || 0) - (i.amountPaid || 0)), 0);
+
+  // Trailing 6 months: money in vs out, from the ledger
+  const thisMonth = monthKeyOf(today());
+  const pastKeys = Array.from({ length: 6 }, (_, i) => shiftMonth(thisMonth, i - 5));
+  const past = pastKeys.map(k => ({ key: k, label: monthLabel(k), current: k === thisMonth, values: { in: 0, out: 0 } }));
+  for (const t of allTx || []) {
+    const b = past.find(p => p.key === monthKeyOf(t.date));
+    if (!b) continue;
+    if (t.type === "income") b.values.in += Math.abs(t.amount);
+    else if (t.type === "expense") b.values.out += Math.abs(t.amount);
+  }
+
+  // Next 6 months: what's expected in — invoice balances by due date, payment-plan installments, recurring plans
+  const futureKeys = Array.from({ length: 6 }, (_, i) => shiftMonth(thisMonth, i));
+  const future = futureKeys.map(k => ({ key: k, label: monthLabel(k), current: k === thisMonth, values: { invoices: 0, installments: 0, recurring: 0 } }));
+  const bucketFor = (iso) => { const k = monthKeyOf(iso); return future.find(b => b.key === (k && k > thisMonth ? k : thisMonth)) || future[0]; };
+  for (const inv of openInvoices) {
+    const balance = (inv.total || 0) - (inv.amountPaid || 0);
+    const pending = (inv.installments || []).filter(x => x.status !== "paid");
+    if (pending.length) {
+      let left = balance;
+      for (const inst of pending) { const amt = Math.min(inst.amount, left); if (amt <= 0) break; const b = bucketFor(inst.dueDate); if (b) b.values.installments += amt; left -= amt; }
+    } else {
+      const b = bucketFor(inv.dueDate); if (b) b.values.invoices += balance;
+    }
+  }
+  const lastKey = futureKeys[futureKeys.length - 1];
+  for (const p of plans) {
+    if (!["active", "trialing", "past_due"].includes(p.status) || !p.currentPeriodEnd || p.cancelAtPeriodEnd) continue;
+    let d = p.currentPeriodEnd;
+    for (let guard = 0; guard < 40 && monthKeyOf(d) <= lastKey; guard++) {
+      const b = future.find(x => x.key === monthKeyOf(d)) || (monthKeyOf(d) < thisMonth ? future[0] : null);
+      if (b) b.values.recurring += p.amount || 0;
+      d = addInterval(d, p.interval || "month", p.intervalCount || 1);
+    }
+  }
+  const expected6 = future.reduce((s, b) => s + b.values.invoices + b.values.installments + b.values.recurring, 0);
 
   // Category spend breakdown
   const catMap = {};
@@ -243,41 +434,67 @@ function BkDashboard({ data, filterYear }) {
   const flagged = [];
   for (const c of data.contractors) {
     const totals = data.contractorTotals[c.id];
-    if (totals && totals[filterYear] && totals[filterYear].flagged) {
-      flagged.push({ name: c.name, total: totals[filterYear].total });
-    }
+    if (totals && totals[filterYear] && totals[filterYear].flagged) flagged.push({ name: c.name, total: totals[filterYear].total });
   }
 
+  const activePlans = plans.filter(p => ["active", "trialing", "past_due"].includes(p.status) && p.stripeSubscriptionId && !p.cancelAtPeriodEnd);
+  const mrr = activePlans.reduce((s, p) => s + monthlyOf(p), 0);
+  const taxRate = Number(data.taxRate ?? 25);
+  const estTax = Math.max(0, net) * (taxRate / 100);
+
+  const card = { background: theme.surface, border: `1px solid ${theme.borderLight}`, borderRadius: theme.radius, padding: 20 };
+  const h3 = { margin: "0 0 4px", fontFamily: "'Fraunces', serif", fontSize: 16, fontWeight: 600 };
+  const sub = { fontSize: 12, color: theme.textMuted, marginBottom: 14 };
+
   return <div>
-    <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginBottom: 28 }}>
+    <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginBottom: 20 }}>
       <StatCard label="Income" value={fmt(income)} color={theme.success} />
       <StatCard label="Expenses" value={fmt(expenses)} color={theme.danger} />
       <StatCard label="Net Income" value={fmt(net)} color={net >= 0 ? theme.success : theme.danger} />
+      <StatCard label="Receivables" value={fmt(receivables)} color={theme.blue} />
       <StatCard label="Unreconciled" value={unreconciled} color={theme.warning} />
     </div>
+    <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginBottom: 20 }}>
+      <StatCard label="MRR (recurring)" value={fmt(mrr)} color={theme.accent} />
+      <StatCard label="ARR (approx.)" value={fmt(mrr * 12)} color={theme.accent} />
+      <StatCard label={`Est. taxes @ ${taxRate}%`} value={fmt(estTax)} color={theme.danger} />
+    </div>
+    <SuggestedMatches data={data} compact onReview={() => onGoTo && onGoTo("reconcile")} />
 
     {flagged.length > 0 && <div style={{ background: theme.warningLight, border: `1px solid ${theme.warning}`, borderRadius: theme.radiusSm, padding: "12px 16px", marginBottom: 20, fontSize: 13 }}>
       <div style={{ fontWeight: 600, marginBottom: 6, color: theme.warning, display: "flex", alignItems: "center", gap: 6 }}>{BkIcons.alert} 1099 Threshold Alerts ({filterYear})</div>
       {flagged.map((f, i) => <div key={i} style={{ color: theme.text, padding: "2px 0" }}>{f.name}: {fmt(f.total)} paid</div>)}
     </div>}
 
-    <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 20 }}>
-      <div style={{ background: theme.surface, border: `1px solid ${theme.borderLight}`, borderRadius: theme.radius, padding: 20 }}>
-        <h3 style={{ margin: "0 0 14px", fontFamily: "'Fraunces', serif", fontSize: 16, fontWeight: 600 }}>Spending by Category</h3>
-        {sortedSpend.length === 0 ? <div style={{ color: theme.textMuted, fontSize: 13 }}>No expenses recorded yet.</div> :
-          sortedSpend.map(([cat, total]) => {
-            const pct = expenses > 0 ? (total / expenses) * 100 : 0;
-            return <div key={cat} style={{ marginBottom: 10 }}>
-              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, marginBottom: 4 }}>
-                <span style={{ color: theme.text }}>{cat}</span>
-                <span style={{ fontWeight: 600 }}>{fmt(total)}</span>
-              </div>
-              <div style={{ background: theme.surfaceAlt, borderRadius: 4, height: 6, overflow: "hidden" }}>
-                <div style={{ background: theme.accent, height: "100%", width: `${pct}%`, borderRadius: 4, transition: "width 0.3s" }} />
-              </div>
-            </div>;
-          })}
+    <div className="r-g" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20, marginBottom: 20 }}>
+      <div style={card}>
+        <h3 style={h3}>Money in vs. out</h3>
+        <div style={sub}>Last 6 months, from the ledger</div>
+        {allTx === null ? <div style={{ color: theme.textMuted, fontSize: 13, padding: "40px 0", textAlign: "center" }}>Loading…</div> :
+          <ColumnChart buckets={past} stacked={false} series={[{ key: "in", label: "Money in", color: CHART_COLORS[0] }, { key: "out", label: "Money out", color: CHART_COLORS[2] }]} emptyMessage="No ledger activity in the last 6 months" />}
       </div>
+      <div style={card}>
+        <h3 style={h3}>Expected income</h3>
+        <div style={sub}>Next 6 months · {fmt(expected6)} scheduled from open invoices, payment plans and recurring plans</div>
+        <ColumnChart buckets={future} stacked series={[{ key: "invoices", label: "Invoices due", color: CHART_COLORS[0] }, { key: "installments", label: "Payment plans", color: CHART_COLORS[1] }, { key: "recurring", label: "Recurring plans", color: CHART_COLORS[2] }]} emptyMessage="Nothing scheduled — send an invoice or set up a recurring plan" />
+      </div>
+    </div>
+
+    <div style={card}>
+      <h3 style={{ ...h3, marginBottom: 14 }}>Spending by Category</h3>
+      {sortedSpend.length === 0 ? <div style={{ color: theme.textMuted, fontSize: 13 }}>No expenses recorded yet.</div> :
+        sortedSpend.map(([cat, total]) => {
+          const pct = expenses > 0 ? (total / expenses) * 100 : 0;
+          return <div key={cat} style={{ marginBottom: 10 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, marginBottom: 4 }}>
+              <span style={{ color: theme.text }}>{cat}</span>
+              <span style={{ fontWeight: 600 }}>{fmt(total)}</span>
+            </div>
+            <div style={{ background: theme.surfaceAlt, borderRadius: 4, height: 6, overflow: "hidden" }}>
+              <div style={{ background: theme.accent, height: "100%", width: `${pct}%`, borderRadius: 4, transition: "width 0.3s" }} />
+            </div>
+          </div>;
+        })}
     </div>
   </div>;
 }
@@ -662,6 +879,7 @@ function ReconcileView({ data, act, showToast, canInput }) {
   };
 
   return <div>
+    <SuggestedMatches data={data} act={act} showToast={showToast} canInput={canInput} />
     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14, flexWrap: "wrap", gap: 8 }}>
       <div style={{ fontSize: 14, color: theme.textSecondary }}>{unreconciled.length} unreconciled transaction{unreconciled.length !== 1 ? "s" : ""}</div>
       {canInput && <div style={{ display: "flex", gap: 8 }}>

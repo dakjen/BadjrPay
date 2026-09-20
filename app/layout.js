@@ -13,6 +13,7 @@ export const viewport = {
   maximumScale: 1,
 };
 
+import Script from "next/script";
 import Providers from "./providers";
 
 export default function RootLayout({ children }) {
@@ -23,13 +24,11 @@ export default function RootLayout({ children }) {
       </head>
       <body style={{ margin: 0, padding: 0 }}>
         <Providers>{children}</Providers>
-        <script dangerouslySetInnerHTML={{ __html: `
+        <Script id="sw-register" strategy="afterInteractive">{`
           if ('serviceWorker' in navigator) {
-            window.addEventListener('load', () => {
-              navigator.serviceWorker.register('/sw.js').catch(() => {});
-            });
+            navigator.serviceWorker.register('/sw.js').catch(() => {});
           }
-        `}} />
+        `}</Script>
       </body>
     </html>
   );

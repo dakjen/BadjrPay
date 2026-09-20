@@ -45,6 +45,7 @@ const theme = {
 };
 
 const genId = () => Math.random().toString(36).substr(2, 9);
+const SIDEBAR_BOTTOM = ["users", "settings"]; // icon-only, pinned at the bottom of the sidebar
 const fmt = (n) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(n);
 const fmtDate = (d) => { if (!d) return "—"; try { const s = String(d).trim(); const iso = /^\d{4}-\d{2}-\d{2}/.test(s) ? s.slice(0, 10) : new Date(s).toISOString().split("T")[0]; const [y, m, day] = iso.split("-"); return new Date(Number(y), Number(m) - 1, Number(day)).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }); } catch { return "—"; } };
 const today = () => new Date().toISOString().split("T")[0];
@@ -53,7 +54,7 @@ const defaultData = {
   clients: [],
   categories: [],
   services: [], projects: [], invoices: [],
-  settings: { companyName: "", companyAddress: "", companyPhone: "" },
+  settings: { companyName: "", companyAddress: "", companyPhone: "", taxRate: 25 },
 };
 
 // ═══════════════════════════════════════
@@ -593,8 +594,10 @@ export default function InvoicingPlatform() {
   const showToast = (message, type = "success") => setToast({ message, type });
 
   const totalRevenue = data.invoices.filter(i => i.status === "paid").reduce((s, i) => s + (i.total || 0), 0);
-  const outstanding = data.invoices.filter(i => ["sent", "viewed", "partial"].includes(i.status)).reduce((s, i) => s + ((i.total || 0) - (i.amountPaid || 0)), 0);
-  const overdueCount = data.invoices.filter(i => i.status === "overdue").length;
+  // Outstanding = money that is actually late: unpaid balances past their due date (or flagged overdue)
+  const isPastDue = (i) => !["paid", "draft"].includes(i.status) && ((i.total || 0) - (i.amountPaid || 0)) > 0.005 && (i.status === "overdue" || (i.dueDate && i.dueDate < today()));
+  const outstanding = data.invoices.filter(isPastDue).reduce((s, i) => s + ((i.total || 0) - (i.amountPaid || 0)), 0);
+  const overdueCount = data.invoices.filter(isPastDue).length;
   const draftCount = data.invoices.filter(i => i.status === "draft").length;
 
   const navItems = [
@@ -723,10 +726,15 @@ export default function InvoicingPlatform() {
       {!isMobile && <nav style={{ width: 220, background: theme.surface, borderRight: `1px solid ${theme.borderLight}`, display: "flex", flexDirection: "column", padding: "20px 12px", flexShrink: 0, position: "sticky", top: 0, height: "100vh" }}>
         <div style={{ fontFamily: "'Fraunces', serif", fontSize: 20, fontWeight: 700, color: theme.accent, padding: "4px 12px 20px", letterSpacing: "-0.02em" }}>Badjr-Pay</div>
         <div style={{ display: "flex", flexDirection: "column", gap: 2, flex: 1 }}>
-          {navItems.map(n => <button key={n.id} onClick={() => navigate(n.id)} style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 12px", border: "none", borderRadius: theme.radiusSm, cursor: "pointer", background: page === n.id ? theme.accentLight : "transparent", color: page === n.id ? theme.accent : theme.textSecondary, fontWeight: page === n.id ? 600 : 400, fontSize: 13, fontFamily: "'DM Sans', sans-serif", transition: "all 0.15s", textAlign: "left" }}>{n.icon}{n.label}</button>)}
+          {navItems.filter(n => !SIDEBAR_BOTTOM.includes(n.id)).map(n => <button key={n.id} onClick={() => navigate(n.id)} style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 12px", border: "none", borderRadius: theme.radiusSm, cursor: "pointer", background: page === n.id ? theme.accentLight : "transparent", color: page === n.id ? theme.accent : theme.textSecondary, fontWeight: page === n.id ? 600 : 400, fontSize: 13, fontFamily: "'DM Sans', sans-serif", transition: "all 0.15s", textAlign: "left" }}>{n.icon}{n.label}</button>)}
         </div>
         <div style={{ borderTop: `1px solid ${theme.borderLight}`, paddingTop: 12, marginTop: 8 }}>
-          {session?.user && <div style={{ padding: "6px 12px", marginBottom: 4 }}><div style={{ fontSize: 12, fontWeight: 600, color: theme.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{session.user.name}</div><div style={{ fontSize: 11, color: theme.textMuted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{session.user.email}</div></div>}
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 6px 8px" }}>
+            {session?.user && <div style={{ minWidth: 0, padding: "0 6px" }}><div style={{ fontSize: 12, fontWeight: 600, color: theme.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{session.user.name}</div><div style={{ fontSize: 11, color: theme.textMuted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{session.user.email}</div></div>}
+            <div style={{ display: "flex", gap: 2, flexShrink: 0 }}>
+              {navItems.filter(n => SIDEBAR_BOTTOM.includes(n.id)).map(n => <button key={n.id} onClick={() => navigate(n.id)} title={n.label} aria-label={n.label} style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 32, height: 32, border: "none", borderRadius: theme.radiusSm, cursor: "pointer", background: page === n.id ? theme.accentLight : "transparent", color: page === n.id ? theme.accent : theme.textMuted }}>{n.icon}</button>)}
+            </div>
+          </div>
           <button onClick={() => signOut({ callbackUrl: "/login" })} style={{ fontSize: 12, color: theme.danger, background: "none", border: "none", cursor: "pointer", padding: "6px 12px", textAlign: "left", fontFamily: "'DM Sans', sans-serif", width: "100%" }}>Sign Out</button>
         </div>
       </nav>}
@@ -777,7 +785,7 @@ function DashboardView({ data, totalRevenue, outstanding, overdueCount, draftCou
     </div>
     <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginBottom: 28 }}>
       <StatCard label="Revenue" value={fmt(totalRevenue)} icon={Icons.dollar} color={theme.success} />
-      <StatCard label="Outstanding" value={fmt(outstanding)} icon={Icons.clock} color={theme.warning} />
+      <StatCard label="Overdue balance" value={fmt(outstanding)} icon={Icons.clock} color={theme.warning} />
       <StatCard label="Overdue" value={overdueCount} icon={Icons.invoice} color={theme.danger} />
       <StatCard label="Drafts" value={draftCount} icon={Icons.edit} color={theme.textMuted} />
     </div>
@@ -1369,6 +1377,12 @@ function SettingsView({ settings, onSave }) {
         <Input label="Phone" value={form.companyPhone || ""} onChange={e => set("companyPhone", e.target.value)} placeholder="(555) 123-4567" />
       </div>
       <div style={{ marginTop: 12 }}><Input label="Address" value={form.companyAddress || ""} onChange={e => set("companyAddress", e.target.value)} placeholder="123 Main St, Washington, DC" /></div>
+    </div>
+
+    <div style={{ background: theme.surface, borderRadius: theme.radius, border: `1px solid ${theme.borderLight}`, padding: "20px 24px", marginBottom: 16 }}>
+      <h3 style={{ margin: "0 0 4px", fontFamily: "'Fraunces', serif", fontSize: 16, fontWeight: 600 }}>Taxes</h3>
+      <p style={{ fontSize: 12, color: theme.textMuted, margin: "0 0 14px" }}>Used for the estimated-taxes figure on the Books overview (net income × this rate). A rough planning number, not tax advice — confirm with your accountant.</p>
+      <div style={{ maxWidth: 220 }}><Input label="Estimated tax rate (%)" type="number" min="0" max="60" step="0.5" value={form.taxRate ?? 25} onChange={e => set("taxRate", e.target.value)} /></div>
     </div>
 
 <div style={{ display: "flex", justifyContent: "flex-end" }}><Btn onClick={() => onSave(form)}>Save Settings</Btn></div>
