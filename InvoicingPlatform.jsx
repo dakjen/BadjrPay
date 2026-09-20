@@ -4,6 +4,7 @@ import { drawInvoicePDF, invoicePdfFilename } from "./lib/invoice-pdf";
 import { upload as blobUpload } from "@vercel/blob/client";
 import { BookkeepingShell } from "./BookkeepingModule";
 import { BillingShell } from "./BillingModule";
+import { ProductsShell } from "./ProductsModule";
 
 function useIsMobile() {
   const [isMobile, setIsMobile] = useState(false);
@@ -58,6 +59,7 @@ const defaultData = {
   clients: [],
   categories: [],
   services: [], projects: [], invoices: [],
+  productLines: [],
   settings: { companyName: "", companyAddress: "", companyPhone: "", taxState: "MD", taxLocalRate: 3.2, taxFiling: "single", autoReminders: true },
 };
 
@@ -87,6 +89,7 @@ const Icons = {
   report: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>,
   spinner: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>,
   card: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="1" y="4" width="22" height="16" rx="2" ry="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>,
+  box: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>,
   link: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>,
 };
 
@@ -423,7 +426,7 @@ export default function InvoicingPlatform() {
 
   useEffect(() => {
     loadFonts();
-    const validPages = ["dashboard","invoices","billing","clients","projects","services","categories","reports","bookkeeping","users","settings"];
+    const validPages = ["dashboard","invoices","billing","products","clients","projects","services","categories","reports","bookkeeping","users","settings"];
     const fromHash = window.location.hash.replace("#", "");
     if (validPages.includes(fromHash)) setPage(fromHash);
     const onHash = () => {
@@ -475,6 +478,7 @@ export default function InvoicingPlatform() {
     { id: "dashboard", label: "Dashboard", icon: Icons.dashboard },
     { id: "invoices", label: "Invoices", icon: Icons.invoice },
     { id: "billing", label: "Billing", icon: Icons.card },
+    { id: "products", label: "Products", icon: Icons.box },
     { id: "clients", label: "Clients", icon: Icons.user },
     { id: "projects", label: "Projects", icon: Icons.project },
     { id: "services", label: "Services", icon: Icons.service },
@@ -633,6 +637,7 @@ export default function InvoicingPlatform() {
         {page === "categories" && <CategoriesView {...{ data, setModal, setEditItem, deleteCategory }} />}
         {page === "reports" && <ReportsView data={data} />}
         {page === "billing" && <BillingShell session={session} showToast={showToast} clients={data.clients} />}
+        {page === "products" && <ProductsShell session={session} showToast={showToast} />}
         {page === "bookkeeping" && <BookkeepingShell session={session} showToast={showToast} />}
         {page === "users" && <UsersView />}
         {page === "settings" && <SettingsView settings={data.settings} onSave={saveSettings} />}
@@ -1460,6 +1465,7 @@ function InvoiceForm({ item, data, onSave, onCancel }) {
         <option value="">One-time</option>{Object.entries(RECURRING).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
       </Select>
       {form.recurring && <Input label="Next renewal" type="date" value={form.recurringNext || ""} onChange={e => set("recurringNext", e.target.value)} />}
+      {(data.productLines || []).length > 0 && <Select label="Product" value={form.productLineId || ""} onChange={e => set("productLineId", e.target.value)}><option value="">Auto-detect</option>{data.productLines.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}</Select>}
       <Input label="Deposit Amount (optional)" type="number" value={form.deposit || ""} onChange={e => set("deposit", e.target.value)} placeholder="0.00" />
     </div>
     <Select label="Project (optional)" value={form.projectId} onChange={e => set("projectId", e.target.value)}><option value="">No Project</option>{data.projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</Select>
