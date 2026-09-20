@@ -40,7 +40,7 @@ export default function SetupPage() {
       <style>{`@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&family=Fraunces:wght@700&display=swap'); *{box-sizing:border-box}`}</style>
       <div style={{ width: "100%", maxWidth: 400 }}>
         <div style={{ textAlign: "center", marginBottom: 32 }}>
-          <div style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 56, height: 56, background: "#2D5A3D", borderRadius: 14, marginBottom: 16 }}>
+          <div style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 56, height: 56, background: "#476C2E", borderRadius: 14, marginBottom: 16 }}>
             <span style={{ fontFamily: "'Fraunces', serif", fontSize: 28, fontWeight: 700, color: "#fff" }}>B</span>
           </div>
           <h1 style={{ margin: 0, fontFamily: "'Fraunces', serif", fontSize: 26, fontWeight: 700, color: "#1A1A1A" }}>Create your account</h1>
@@ -61,11 +61,11 @@ export default function SetupPage() {
             </div>
           ))}
           <button type="submit" disabled={loading}
-            style={{ width: "100%", marginTop: 8, padding: "11px", background: loading ? "#6B9E7A" : "#2D5A3D", color: "#fff", border: "none", borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: loading ? "not-allowed" : "pointer", fontFamily: "'DM Sans', sans-serif" }}>
+            style={{ width: "100%", marginTop: 8, padding: "11px", background: loading ? "#7FA36A" : "#476C2E", color: "#fff", border: "none", borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: loading ? "not-allowed" : "pointer", fontFamily: "'DM Sans', sans-serif" }}>
             {loading ? "Creating account…" : "Create Account"}
           </button>
         </form>
-        <p style={{ textAlign: "center", fontSize: 12, color: "#9C9590", marginTop: 16 }}>Already have an account? <a href="/login" style={{ color: "#2D5A3D", fontWeight: 600, textDecoration: "none" }}>Sign in</a></p>
+        <p style={{ textAlign: "center", fontSize: 12, color: "#9C9590", marginTop: 16 }}>Already have an account? <a href="/login" style={{ color: "#476C2E", fontWeight: 600, textDecoration: "none" }}>Sign in</a></p>
       </div>
     </div>
   );
