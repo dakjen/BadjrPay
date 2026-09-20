@@ -1667,7 +1667,7 @@ function BalanceSheetView({ filterYear, showToast, data, act, companyName }) {
     }
     if (unassignedBalance !== 0) pdfRow("Unassigned Transactions", unassignedBalance);
     if (accountsReceivable.length > 0) {
-      accountsReceivable.forEach(r => pdfRow(`A/R — ${r.clientName}`, r.outstanding));
+      accountsReceivable.forEach(r => pdfRow(`${r.number} — ${r.clientName}${r.dueDate ? ` (due ${fmtDate(r.dueDate)})` : ""}`, r.outstanding));
     }
     pdfTotal("Total Assets", totalAssets);
 
@@ -1703,7 +1703,7 @@ function BalanceSheetView({ filterYear, showToast, data, act, companyName }) {
       { Section: "Assets", Item: "Bank Accounts", Amount: "" },
       ...accountBalances.map(a => ({ Section: "Assets", Item: a.name, Amount: a.balance })),
       ...(unassignedBalance !== 0 ? [{ Section: "Assets", Item: "Unassigned Transactions", Amount: unassignedBalance }] : []),
-      ...accountsReceivable.map(r => ({ Section: "Assets", Item: `A/R — ${r.clientName}`, Amount: r.outstanding })),
+      ...accountsReceivable.map(r => ({ Section: "Assets", Item: `${r.number} — ${r.clientName}${r.dueDate ? ` (due ${r.dueDate})` : ""}`, Amount: r.outstanding })),
       { Section: "Assets", Item: "TOTAL ASSETS", Amount: totalAssets },
       { Section: "Liabilities", Item: "TOTAL LIABILITIES", Amount: 0 },
       { Section: "Equity", Item: "Owner's Contributions", Amount: ownerContributions },
@@ -1782,10 +1782,10 @@ function BalanceSheetView({ filterYear, showToast, data, act, companyName }) {
         {accountBalances.map(a => qboRow(a.name, a.balance, 3))}
         {qboTotal("Total for Bank Accounts", accountBalances.reduce((s, a) => s + a.balance, 0), 2)}
       </>}
-      {unassignedBalance !== 0 && qboRow("Unassigned Cash", unassignedBalance, 3)}
+      {unassignedBalance !== 0 && qboRow(accountBalances.length ? "Cash — not yet assigned to a bank account" : "Cash & bank (ledger)", unassignedBalance, 3)}
       {accountsReceivable.length > 0 && <>
         {qboRow("Accounts Receivable", null, 2)}
-        {accountsReceivable.map((r, i) => qboRow(r.clientName, r.outstanding, 3))}
+        {accountsReceivable.map((r, i) => qboRow(`${r.number} — ${r.clientName}${r.dueDate ? ` · due ${fmtDate(r.dueDate)}` : ""}`, r.outstanding, 3))}
         {qboTotal("Total for Accounts Receivable", totalAR, 2)}
       </>}
       {qboTotal("Total for Current Assets", totalAssets, 1)}
