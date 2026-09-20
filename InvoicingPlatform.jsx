@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { useSession, signOut } from "next-auth/react";
 import { jsPDF } from "jspdf";
 import { BookkeepingShell } from "./BookkeepingModule";
+import { BillingShell } from "./BillingModule";
 
 function useIsMobile() {
   const [isMobile, setIsMobile] = useState(false);
@@ -80,6 +81,8 @@ const Icons = {
   mail: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>,
   report: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>,
   spinner: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>,
+  card: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="1" y="4" width="22" height="16" rx="2" ry="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>,
+  link: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>,
 };
 
 // ═══════════════════════════════════════
@@ -89,6 +92,15 @@ function StatusBadge({ status }) {
   const styles = { draft: { bg: theme.surfaceAlt, color: theme.textSecondary, label: "Draft" }, sent: { bg: theme.blueLight, color: theme.blue, label: "Sent" }, viewed: { bg: theme.warningLight, color: theme.warning, label: "Viewed" }, paid: { bg: theme.successLight, color: theme.success, label: "Paid" }, overdue: { bg: theme.dangerLight, color: theme.danger, label: "Overdue" }, partial: { bg: theme.warningLight, color: theme.warning, label: "Partial" }, active: { bg: theme.accentLight, color: theme.accent, label: "Active" }, completed: { bg: theme.successLight, color: theme.success, label: "Completed" }, archived: { bg: theme.surfaceAlt, color: theme.textMuted, label: "Archived" } };
   const s = styles[status] || styles.draft;
   return <span style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "3px 10px", borderRadius: 20, fontSize: 12, fontWeight: 600, background: s.bg, color: s.color, letterSpacing: "0.02em", fontFamily: "'DM Sans', sans-serif" }}><span style={{ width: 6, height: 6, borderRadius: "50%", background: s.color, opacity: 0.7 }} />{s.label}</span>;
+}
+
+const INVOICE_STATUSES = [["draft", "Draft"], ["sent", "Sent"], ["viewed", "Viewed"], ["partial", "Partial"], ["paid", "Paid"], ["overdue", "Overdue"]];
+function StatusSelect({ status, onChange }) {
+  const styles = { draft: { bg: theme.surfaceAlt, color: theme.textSecondary }, sent: { bg: theme.blueLight, color: theme.blue }, viewed: { bg: theme.warningLight, color: theme.warning }, paid: { bg: theme.successLight, color: theme.success }, overdue: { bg: theme.dangerLight, color: theme.danger }, partial: { bg: theme.warningLight, color: theme.warning } };
+  const st = styles[status] || styles.draft;
+  return <select value={status} onChange={e => onChange(e.target.value)} onClick={e => e.stopPropagation()} title="Change status" style={{ appearance: "none", WebkitAppearance: "none", padding: "3px 22px 3px 10px", borderRadius: 20, fontSize: 12, fontWeight: 600, background: `${st.bg} url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='${encodeURIComponent(st.color)}' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E") no-repeat right 7px center`, color: st.color, border: "none", cursor: "pointer", fontFamily: "'DM Sans', sans-serif", letterSpacing: "0.02em" }}>
+    {INVOICE_STATUSES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+  </select>;
 }
 
 function Btn({ children, onClick, variant = "primary", size = "md", icon, style: sx, disabled, ...props }) {
@@ -306,7 +318,15 @@ function escHtml(s) { return String(s || "").replace(/&/g, "&amp;").replace(/</g
 
 function safeDate(d) { if (!d) return "—"; try { const s = String(d).trim(); const iso = /^\d{4}-\d{2}-\d{2}/.test(s) ? s.slice(0,10) : new Date(s).toISOString().split("T")[0]; return fmtDate(iso); } catch { return "—"; } }
 
-function buildInvoiceEmailHTML(invoice, settings) {
+function buildPayButtonHTML(payUrl) {
+  if (!payUrl) return "";
+  return `<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin:8px 0 24px;">
+              <tr><td align="center"><a href="${escHtml(payUrl)}" style="display:inline-block;background-color:#2D5A3D;color:#ffffff;text-decoration:none;font-size:15px;font-weight:600;padding:14px 32px;border-radius:8px;">Pay online</a></td></tr>
+              <tr><td align="center" style="font-size:12px;color:#888888;padding-top:10px;">Pay by bank account (ACH) or card through Stripe's secure checkout.</td></tr>
+            </table>`;
+}
+
+function buildInvoiceEmailHTML(invoice, settings, payUrl) {
   const remaining = (invoice.total || 0) - (invoice.amountPaid || 0);
   const amount = fmt(remaining).replace("$", "");
   const clientName = escHtml(invoice.clientName || "");
@@ -360,6 +380,7 @@ function buildInvoiceEmailHTML(invoice, settings) {
               ${paymentTermsHtml}
             </table>
             <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="border-top:1px solid #e9e9e9;margin:24px 0;"><tr><td></td></tr></table>
+            ${buildPayButtonHTML(payUrl)}
             <p style="margin:0 0 24px;font-size:15px;color:#363636;line-height:1.6;">A PDF copy of your invoice is attached for your records. If you have any questions, please reach out to ${senderName} directly.</p>
           </td>
         </tr>
@@ -381,7 +402,7 @@ function buildInvoiceEmailHTML(invoice, settings) {
 </html>`;
 }
 
-function buildOverdueEmailHTML(invoice, settings) {
+function buildOverdueEmailHTML(invoice, settings, payUrl) {
   const remaining = (invoice.total || 0) - (invoice.amountPaid || 0);
   const amount = fmt(remaining).replace("$", "");
   const clientName = escHtml(invoice.clientName || "");
@@ -539,7 +560,7 @@ export default function InvoicingPlatform() {
 
   useEffect(() => {
     loadFonts();
-    const validPages = ["dashboard","invoices","clients","projects","services","categories","reports","bookkeeping","users","settings"];
+    const validPages = ["dashboard","invoices","billing","clients","projects","services","categories","reports","bookkeeping","users","settings"];
     const fromHash = window.location.hash.replace("#", "");
     if (validPages.includes(fromHash)) setPage(fromHash);
     const onHash = () => {
@@ -547,12 +568,16 @@ export default function InvoicingPlatform() {
       if (validPages.includes(p)) setPage(p);
     };
     window.addEventListener("hashchange", onHash);
-    fetch("/api/data", { cache: "no-store" }).then(r => r.ok ? r.json() : null).then(saved => {
+    const load = () => fetch("/api/data", { cache: "no-store" }).then(r => r.ok ? r.json() : null).then(saved => {
       if (saved && Object.keys(saved).length > 0) {
         setData({ ...defaultData, ...saved, settings: { ...defaultData.settings, ...(saved.settings || {}) } });
       }
     }).catch(() => {});
-    return () => window.removeEventListener("hashchange", onHash);
+    load();
+    const onFocus = () => { if (document.visibilityState === "visible" && !saveTimer.current) load(); };
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onFocus);
+    return () => { window.removeEventListener("hashchange", onHash); window.removeEventListener("focus", onFocus); document.removeEventListener("visibilitychange", onFocus); };
   }, []);
 
   const doFetch = (newData) => {
@@ -584,6 +609,7 @@ export default function InvoicingPlatform() {
   const navItems = [
     { id: "dashboard", label: "Dashboard", icon: Icons.dashboard },
     { id: "invoices", label: "Invoices", icon: Icons.invoice },
+    { id: "billing", label: "Billing", icon: Icons.card },
     { id: "clients", label: "Clients", icon: Icons.user },
     { id: "projects", label: "Projects", icon: Icons.project },
     { id: "services", label: "Services", icon: Icons.service },
@@ -612,6 +638,29 @@ export default function InvoicingPlatform() {
   };
 
   const updateInvoiceStatus = (id, status) => updateNow("invoices", data.invoices.map(i => i.id === id ? { ...i, status, ...(status === "sent" ? { sentAt: today() } : {}), ...(status === "paid" ? { amountPaid: i.total, paidAt: today() } : {}) } : i));
+
+  const setInvoiceStatus = (id, status) => updateNow("invoices", data.invoices.map(i => {
+    if (i.id !== id) return i;
+    const wasPaid = i.status === "paid";
+    if (status === "paid") return { ...i, status, amountPaid: i.total, paidAt: i.paidAt || today() };
+    if (status === "partial") return { ...i, status, paidAt: "", amountPaid: wasPaid ? 0 : (i.amountPaid || 0) };
+    // draft / sent / viewed / overdue: not paid — clear the paid date, and undo a full "paid" amount
+    return { ...i, status, paidAt: "", amountPaid: wasPaid ? 0 : (i.amountPaid || 0), ...(status === "sent" && !i.sentAt ? { sentAt: today() } : {}) };
+  }));
+
+  const getInvoicePayLink = async (inv) => {
+    const r = await fetch("/api/billing", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "invoice_link", data: { invoiceId: inv.id } }) });
+    const body = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(body.error || "Couldn't create payment link");
+    return body; // { url, configured }
+  };
+  const handleCopyPayLink = async (inv) => {
+    try {
+      const { url, configured } = await getInvoicePayLink(inv);
+      try { await navigator.clipboard.writeText(url); } catch { window.prompt("Copy this payment link:", url); }
+      showToast(configured ? "Payment link copied" : "Link copied — connect Stripe on the Billing page before sending it", configured ? "success" : "info");
+    } catch (e) { showToast(e.message, "error"); }
+  };
 
   const markPartialPayment = (id, amount) => updateNow("invoices", data.invoices.map(i => {
     if (i.id !== id) return i;
@@ -653,10 +702,11 @@ export default function InvoicingPlatform() {
       const client = { email: inv.clientEmail, phone: inv.clientPhone, address: inv.clientAddress };
       const { pdfBase64, filename } = await generateInvoicePDF(inv, data.settings, client);
       const senderName = data.settings.companyName || "BaDjR Tech";
+      const payUrl = await getInvoicePayLink(inv).then(r => r.configured ? r.url : null).catch(() => null);
       const result = await sendEmail({
         recipientEmail: inv.clientEmail, recipientName: inv.clientName,
         subject: `Invoice #${inv.number} from ${senderName}`,
-        htmlBody: buildInvoiceEmailHTML(inv, data.settings),
+        htmlBody: buildInvoiceEmailHTML(inv, data.settings, payUrl),
         pdfBase64, filename,
       });
       if (result.success) {
@@ -670,10 +720,11 @@ export default function InvoicingPlatform() {
     if (!inv.clientEmail) { showToast("This invoice has no client email. Edit the invoice to add one.", "error"); return; }
     try {
       const senderName = data.settings.companyName || "BaDjR Tech";
+      const payUrl = await getInvoicePayLink(inv).then(r => r.configured ? r.url : null).catch(() => null);
       const result = await sendEmail({
         recipientEmail: inv.clientEmail, recipientName: inv.clientName,
         subject: `Payment Reminder: Invoice #${inv.number} from ${senderName}`,
-        htmlBody: buildOverdueEmailHTML(inv, data.settings),
+        htmlBody: buildOverdueEmailHTML(inv, data.settings, payUrl),
       });
       if (result.success) showToast(`Overdue reminder sent to ${inv.clientEmail}`);
       else showToast(`Reminder failed: ${result.error || "check SENDER_EMAIL env var"}`, "error");
@@ -701,13 +752,14 @@ export default function InvoicingPlatform() {
       {/* Content */}
       <main style={{ flex: 1, padding: isMobile ? "16px 14px" : "24px 28px", paddingBottom: isMobile ? 80 : undefined, maxWidth: isMobile ? "100%" : 960, width: "100%", overflowY: "auto" }}>
         {page === "dashboard" && <DashboardView {...{ data, totalRevenue, outstanding, overdueCount, draftCount, setPage, setModal, updateInvoiceStatus, handleDownloadPDF, handleSendEmail }} />}
-        {page === "invoices" && !viewInvoice && <InvoicesView {...{ data, setModal, setEditItem, setViewInvoice, deleteInvoice, updateInvoiceStatus, handleDownloadPDF, handleSendEmail, handleSendOverdue }} />}
-        {page === "invoices" && viewInvoice && <InvoiceDetailView invoice={data.invoices.find(i => i.id === viewInvoice.id) || viewInvoice} data={data} onBack={() => setViewInvoice(null)} updateStatus={updateInvoiceStatus} markPartial={markPartialPayment} markInstallmentPaid={markInstallmentPaid} handleDownloadPDF={handleDownloadPDF} handleSendEmail={handleSendEmail} handleSendOverdue={handleSendOverdue} />}
+        {page === "invoices" && !viewInvoice && <InvoicesView {...{ data, setModal, setEditItem, setViewInvoice, deleteInvoice, updateInvoiceStatus, setInvoiceStatus, handleCopyPayLink, handleDownloadPDF, handleSendEmail, handleSendOverdue }} />}
+        {page === "invoices" && viewInvoice && <InvoiceDetailView invoice={data.invoices.find(i => i.id === viewInvoice.id) || viewInvoice} data={data} onBack={() => setViewInvoice(null)} updateStatus={updateInvoiceStatus} markPartial={markPartialPayment} markInstallmentPaid={markInstallmentPaid} setInvoiceStatus={setInvoiceStatus} handleCopyPayLink={handleCopyPayLink} handleDownloadPDF={handleDownloadPDF} handleSendEmail={handleSendEmail} handleSendOverdue={handleSendOverdue} />}
         {page === "clients" && <ClientsView {...{ data, setModal, setEditItem, deleteClient }} />}
         {page === "projects" && <ProjectsView {...{ data, setModal, setEditItem, deleteProject, saveProject }} />}
         {page === "services" && <ServicesView {...{ data, setModal, setEditItem, deleteService }} />}
         {page === "categories" && <CategoriesView {...{ data, setModal, setEditItem, deleteCategory }} />}
         {page === "reports" && <ReportsView data={data} />}
+        {page === "billing" && <BillingShell session={session} showToast={showToast} clients={data.clients} />}
         {page === "bookkeeping" && <BookkeepingShell session={session} showToast={showToast} />}
         {page === "users" && <UsersView />}
         {page === "settings" && <SettingsView settings={data.settings} onSave={saveSettings} />}
@@ -766,7 +818,7 @@ function DashboardView({ data, totalRevenue, outstanding, overdueCount, draftCou
                 <Btn size="sm" variant="secondary" icon={Icons.download} onClick={() => handleDownloadPDF(inv)} title="Download PDF" />
                 <Btn size="sm" variant="blue" icon={Icons.mail} onClick={() => handleSendEmail(inv)} title="Email Invoice" />
                 {inv.status === "draft" && <Btn size="sm" variant="secondary" icon={Icons.send} onClick={() => updateInvoiceStatus(inv.id, "sent")}>Send</Btn>}
-                {["sent", "viewed"].includes(inv.status) && <Btn size="sm" variant="success" icon={Icons.check} onClick={() => updateInvoiceStatus(inv.id, "paid")}>Paid</Btn>}
+                {["sent", "viewed"].includes(inv.status) && <Btn size="sm" variant="success" icon={Icons.check} onClick={() => { if (confirm(`Mark ${inv.number} as paid in full (${fmt(inv.total || 0)})?`)) updateInvoiceStatus(inv.id, "paid"); }}>Paid</Btn>}
               </div>
             </td>
           </tr>)}
@@ -775,7 +827,7 @@ function DashboardView({ data, totalRevenue, outstanding, overdueCount, draftCou
   </div>;
 }
 
-function InvoicesView({ data, setModal, setEditItem, setViewInvoice, deleteInvoice, updateInvoiceStatus, handleDownloadPDF, handleSendEmail, handleSendOverdue }) {
+function InvoicesView({ data, setModal, setEditItem, setViewInvoice, deleteInvoice, updateInvoiceStatus, setInvoiceStatus, handleCopyPayLink, handleDownloadPDF, handleSendEmail, handleSendOverdue }) {
   const [filter, setFilter] = useState("all");
   const filtered = data.invoices.filter(i => filter === "all" || i.status === filter).sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
   const tabs = [{ id: "all", label: "All" }, { id: "draft", label: "Draft" }, { id: "sent", label: "Sent" }, { id: "paid", label: "Paid" }, { id: "overdue", label: "Overdue" }];
@@ -806,12 +858,13 @@ function InvoicesView({ data, setModal, setEditItem, setViewInvoice, deleteInvoi
               <td style={{ padding: "10px 14px", color: inv.dueDate && new Date(inv.dueDate) < new Date() && inv.status !== "paid" ? theme.danger : theme.textSecondary, fontSize: 12 }}>{inv.dueDate ? fmtDate(inv.dueDate) : "-"}</td>
               <td style={{ padding: "10px 14px", fontWeight: 600, fontFamily: "'Fraunces', serif" }}>{fmt(inv.total || 0)}</td>
               <td style={{ padding: "10px 14px", fontWeight: 500, color: balance > 0 ? theme.warning : theme.success, fontFamily: "'Fraunces', serif" }}>{balance > 0 ? fmt(balance) : "—"}</td>
-              <td style={{ padding: "10px 14px" }}><StatusBadge status={inv.status} /></td>
+              <td style={{ padding: "10px 14px" }} onClick={e => e.stopPropagation()}><StatusSelect status={inv.status} onChange={s => setInvoiceStatus(inv.id, s)} />{(inv.onlinePayments || []).some(p => p.status === "processing") && <div style={{ fontSize: 10, color: theme.warning, fontWeight: 600, marginTop: 4 }}>ACH clearing</div>}</td>
               <td style={{ padding: "10px 14px" }} onClick={e => e.stopPropagation()}>
                 <div style={{ display: "flex", gap: 3 }}>
                   <Btn size="sm" variant="secondary" icon={Icons.download} onClick={() => handleDownloadPDF(inv)} title="Download PDF" />
                   <Btn size="sm" variant="blue" icon={Icons.mail} onClick={() => handleSendEmail(inv)} title="Email Invoice" />
-                  {inv.status !== "paid" && <Btn size="sm" variant="success" icon={Icons.check} onClick={() => updateInvoiceStatus(inv.id, "paid")} title="Mark Paid" />}
+                  {inv.status !== "paid" && <Btn size="sm" variant="secondary" icon={Icons.link} onClick={() => handleCopyPayLink(inv)} title="Copy payment link" />}
+                  {inv.status !== "paid" && <Btn size="sm" variant="success" icon={Icons.check} onClick={() => { if (confirm(`Mark ${inv.number} as paid in full (${fmt(inv.total || 0)})?`)) updateInvoiceStatus(inv.id, "paid"); }} title="Mark Paid" />}
                   <Btn size="sm" variant="ghost" icon={Icons.edit} onClick={() => { setEditItem(inv); setModal("invoice"); }} title="Edit" />
                   <Btn size="sm" variant="ghost" icon={Icons.trash} onClick={() => { if (confirm("Delete?")) deleteInvoice(inv.id); }} style={{ color: theme.danger }} title="Delete" />
                 </div>
@@ -823,7 +876,7 @@ function InvoicesView({ data, setModal, setEditItem, setViewInvoice, deleteInvoi
   </div>;
 }
 
-function InvoiceDetailView({ invoice: inv, data, onBack, updateStatus, markPartial, markInstallmentPaid, handleDownloadPDF, handleSendEmail, handleSendOverdue }) {
+function InvoiceDetailView({ invoice: inv, data, onBack, updateStatus, markPartial, markInstallmentPaid, setInvoiceStatus, handleCopyPayLink, handleDownloadPDF, handleSendEmail, handleSendOverdue }) {
   const [payAmount, setPayAmount] = useState("");
   const [sending, setSending] = useState(false);
   const [sendingReminder, setSendingReminder] = useState(false);
@@ -841,7 +894,9 @@ function InvoiceDetailView({ invoice: inv, data, onBack, updateStatus, markParti
       <Btn variant="secondary" icon={downloadingPDF ? <span className="spin" style={{ display: "inline-flex" }}>{Icons.spinner}</span> : Icons.download} onClick={onDownloadPDF} disabled={downloadingPDF}>{downloadingPDF ? "Generating..." : "Download PDF"}</Btn>
       <Btn variant="blue" icon={sending ? <span className="spin" style={{ display: "inline-flex" }}>{Icons.spinner}</span> : Icons.mail} onClick={onSend} disabled={sending}>{sending ? "Sending..." : "Send"}</Btn>
       {inv.status === "overdue" && <Btn variant="danger" icon={sendingReminder ? <span className="spin" style={{ display: "inline-flex" }}>{Icons.spinner}</span> : Icons.mail} onClick={onSendReminder} disabled={sendingReminder}>{sendingReminder ? "Sending..." : "Send Overdue Reminder"}</Btn>}
-      {inv.status !== "paid" && <Btn variant="success" icon={Icons.check} onClick={() => updateStatus(inv.id, "paid")}>Paid</Btn>}
+      {inv.status !== "paid" && <Btn variant="secondary" icon={Icons.link} onClick={() => handleCopyPayLink(inv)}>Payment Link</Btn>}
+      {inv.status !== "paid" && <Btn variant="success" icon={Icons.check} onClick={() => { if (confirm(`Mark ${inv.number} as paid in full (${fmt(inv.total || 0)})?`)) updateStatus(inv.id, "paid"); }}>Paid</Btn>}
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginLeft: "auto" }}><span style={{ fontSize: 12, color: theme.textMuted }}>Status</span><StatusSelect status={inv.status} onChange={s => setInvoiceStatus(inv.id, s)} /></div>
     </div>
 
     <div style={{ background: theme.surface, borderRadius: theme.radius, border: `1px solid ${theme.borderLight}`, padding: "28px 32px" }}>
@@ -892,6 +947,18 @@ function InvoiceDetailView({ invoice: inv, data, onBack, updateStatus, markParti
       </div>
 
       {inv.notes && <div style={{ padding: "14px 16px", background: theme.surfaceAlt, borderRadius: theme.radiusSm, fontSize: 13, color: theme.textSecondary, marginBottom: 20 }}><span style={{ fontWeight: 600, fontSize: 11, textTransform: "uppercase", letterSpacing: "0.05em", display: "block", marginBottom: 4 }}>Notes</span>{inv.notes}</div>}
+
+      {(inv.onlinePayments || []).length > 0 && (
+        <div style={{ paddingTop: 16, borderTop: `1px solid ${theme.borderLight}`, marginBottom: 16 }}>
+          <div style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em", color: theme.textMuted, marginBottom: 10 }}>Online Payments</div>
+          <div style={{ display: "grid", gap: 6 }}>
+            {inv.onlinePayments.map(p => <div key={p.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 12px", background: p.status === "paid" ? `${theme.success}12` : theme.warningLight, borderRadius: theme.radiusSm, fontSize: 13 }}>
+              <span><b>{fmt(p.amount)}</b> via Stripe{p.method ? ` (${p.method === "ach" ? "bank / ACH" : p.method})` : ""}{p.kind && p.kind !== "balance" ? ` · ${p.kind}` : ""}</span>
+              <span style={{ fontSize: 11, fontWeight: 600, color: p.status === "paid" ? theme.success : theme.warning }}>{p.status === "paid" ? `PAID ${fmtDate(p.paidAt)}` : "ACH CLEARING"}{p.receiptUrl && <a href={p.receiptUrl} target="_blank" rel="noreferrer" style={{ marginLeft: 8, color: theme.textMuted }}>receipt</a>}</span>
+            </div>)}
+          </div>
+        </div>
+      )}
 
       {(inv.installments || []).length > 0 ? (
         <div style={{ paddingTop: 16, borderTop: `1px solid ${theme.borderLight}` }}>
@@ -1442,7 +1509,7 @@ function InvoiceForm({ item, data, onSave, onCancel }) {
               <div>
                 <label style={{ fontSize: 11, fontWeight: 600, color: theme.textSecondary, textTransform: "uppercase", letterSpacing: "0.05em", display: "block", marginBottom: 4 }}>Payments</label>
                 <select value={form.planPayments} onChange={e => set("planPayments", parseInt(e.target.value))} style={{ width: "100%", padding: "8px 10px", border: `1px solid ${theme.border}`, borderRadius: theme.radiusSm, fontSize: 13, fontFamily: "'DM Sans', sans-serif", background: theme.surface }}>
-                  {[2, 3, 4, 6, 12].map(n => <option key={n} value={n}>{n} payments</option>)}
+                  {Array.from({ length: 17 }, (_, i) => i + 2).map(n => <option key={n} value={n}>{n} payments</option>)}
                 </select>
               </div>
               <div>
