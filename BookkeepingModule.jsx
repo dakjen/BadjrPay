@@ -175,10 +175,11 @@ export function BookkeepingShell({ session, showToast }) {
     { id: "contractors", label: "Contractors" },
     { id: "pnl", label: "P&L Report" },
     { id: "balance_sheet", label: "Balance Sheet" },
+    { id: "accounts", label: "Chart of Accounts" },
   ];
 
   const years = [];
-  for (let y = new Date().getFullYear(); y >= 2020; y--) years.push(y);
+  for (let y = new Date().getFullYear(); y >= 2026; y--) years.push(y);
   const months = ["All Months", "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
   return <div>
@@ -213,6 +214,7 @@ export function BookkeepingShell({ session, showToast }) {
       {tab === "contractors" && <ContractorView data={data} act={act} showToast={showToast} canEdit={canEdit} filterYear={filterYear} />}
       {tab === "pnl" && <PnLView filterYear={filterYear} filterMonth={filterMonth} showToast={showToast} data={data} act={act} companyName={data?.companyName} />}
       {tab === "balance_sheet" && <BalanceSheetView filterYear={filterYear} showToast={showToast} data={data} act={act} companyName={data?.companyName} />}
+      {tab === "accounts" && <ChartOfAccountsView data={data} act={act} showToast={showToast} canEdit={canEdit} />}
     </>}
   </div>;
 }
@@ -333,6 +335,7 @@ function LedgerView({ data, act, showToast, canInput, canEdit }) {
           <option value="all">All Types</option>
           <option value="income">Income</option>
           <option value="expense">Expense</option>
+          <option value="equity">Owner equity</option>
         </select>
         <select value={filterCat} onChange={e => setFilterCat(e.target.value)} style={{ padding: "7px 10px", border: `1px solid ${theme.border}`, borderRadius: theme.radiusSm, fontSize: 13, fontFamily: "'DM Sans', sans-serif", background: theme.surface }}>
           <option value="all">All Categories</option>
@@ -367,7 +370,7 @@ function LedgerView({ data, act, showToast, canInput, canEdit }) {
                 {t.vendor && <div style={{ fontSize: 11, color: theme.textMuted }}>Vendor: {t.vendor}</div>}
               </td>
               <td style={tdStyle}><span style={{ fontSize: 12, color: theme.textSecondary }}>{catMap[t.categoryId] || "—"}</span></td>
-              <td style={{ ...tdStyle, textAlign: "right", fontWeight: 600, color: t.type === "income" ? theme.success : theme.danger }}>{t.type === "income" ? "+" : "-"}{fmt(Math.abs(t.amount))}</td>
+              <td style={{ ...tdStyle, textAlign: "right", fontWeight: 600, color: t.amount >= 0 ? theme.success : theme.danger }}>{t.amount >= 0 ? "+" : "-"}{fmt(Math.abs(t.amount))}</td>
               <td style={tdStyle}>
                 {t.reconciled ? <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 10, background: theme.successLight, color: theme.success, fontWeight: 600 }}>Reconciled</span>
                   : t.reviewed ? <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 10, background: theme.blueLight, color: theme.blue, fontWeight: 600 }}>Reviewed</span>
@@ -398,21 +401,26 @@ function TransactionForm({ item, categories, accounts, onSave, onCancel }) {
     type: "expense", vendor: "", reference: "", notes: "",
     ...item,
     amount: item ? String(Math.abs(item.amount)) : "",
+    type: item ? (item.type === "equity" ? (item.amount < 0 ? "draw" : "contribution") : item.type) : "expense",
   });
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
+  const storedType = (t) => (t === "contribution" || t === "draw" ? "equity" : t);
+  const isNegative = (t) => t === "expense" || t === "draw";
 
   const handleSubmit = () => {
     if (!form.date || !form.amount) return;
     const amt = parseFloat(form.amount) || 0;
-    onSave({ ...form, amount: form.type === "expense" ? -Math.abs(amt) : Math.abs(amt) });
+    onSave({ ...form, type: storedType(form.type), amount: isNegative(form.type) ? -Math.abs(amt) : Math.abs(amt) });
   };
 
   return <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
     <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
       <Input label="Date *" type="date" value={form.date} onChange={e => set("date", e.target.value)} />
-      <Select label="Type *" value={form.type} onChange={e => set("type", e.target.value)}>
+      <Select label="Type *" value={form.type} onChange={e => { const t = e.target.value; setForm(f => ({ ...f, type: t, categoryId: t === "contribution" ? "bkc_owner_contrib" : t === "draw" ? "bkc_owner_draws" : (categories.find(c => c.id === f.categoryId)?.type === storedType(t) ? f.categoryId : "") })); }}>
         <option value="expense">Expense</option>
         <option value="income">Income</option>
+        <option value="contribution">Owner contribution (money in, not income)</option>
+        <option value="draw">Owner draw (money out, not an expense)</option>
       </Select>
     </div>
     <Input label="Name" value={form.name} onChange={e => set("name", e.target.value)} placeholder="Label for this transaction" />
@@ -424,7 +432,7 @@ function TransactionForm({ item, categories, accounts, onSave, onCancel }) {
     <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
       <Select label="Category" value={form.categoryId} onChange={e => set("categoryId", e.target.value)}>
         <option value="">Uncategorized</option>
-        {categories.filter(c => c.type === form.type).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+        {categories.filter(c => c.type === storedType(form.type)).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
       </Select>
       <Select label="Account" value={form.accountId} onChange={e => set("accountId", e.target.value)}>
         <option value="">No Account</option>
@@ -670,7 +678,7 @@ function ReconcileView({ data, act, showToast, canInput }) {
               <td style={tdStyle}>{fmtDate(t.date)}</td>
               <td style={tdStyle}><div style={{ fontWeight: 500 }}>{t.name || t.description || "—"}</div></td>
               <td style={tdStyle}><span style={{ fontSize: 12, color: theme.textSecondary }}>{catMap[t.categoryId] || "—"}</span></td>
-              <td style={{ ...tdStyle, textAlign: "right", fontWeight: 600, color: t.type === "income" ? theme.success : theme.danger }}>{t.type === "income" ? "+" : "-"}{fmt(Math.abs(t.amount))}</td>
+              <td style={{ ...tdStyle, textAlign: "right", fontWeight: 600, color: t.amount >= 0 ? theme.success : theme.danger }}>{t.amount >= 0 ? "+" : "-"}{fmt(Math.abs(t.amount))}</td>
             </tr>)}
           </tbody>
         </table>
@@ -1289,9 +1297,9 @@ function BalanceSheetView({ filterYear, showToast, data, act, companyName }) {
       name: investForm.description,
       description: investForm.description,
       amount: Math.abs(parseFloat(investForm.amount)),
-      categoryId: null,
+      categoryId: "bkc_owner_contrib",
       accountId: investForm.accountId || null,
-      type: "investment",
+      type: "equity",
       vendor: "", reference: "", notes: "",
       reconciled: false, reviewed: false, source: "manual",
     });
@@ -1307,7 +1315,7 @@ function BalanceSheetView({ filterYear, showToast, data, act, companyName }) {
   if (loading) return <div style={{ textAlign: "center", padding: 40, color: theme.textMuted }}>Loading...</div>;
   if (!bsData) return <Empty message="No balance sheet data available." />;
 
-  const { accountBalances, unassignedBalance, accountsReceivable, invoiceRevenue = 0, totalExpenses = 0, ownerInvestments = 0, retainedEarnings } = bsData;
+  const { accountBalances, unassignedBalance, accountsReceivable, invoiceRevenue = 0, totalExpenses = 0, ownerInvestments = 0, ownerContributions = 0, ownerDraws = 0, retainedEarnings } = bsData;
 
   const totalCash = accountBalances.reduce((s, a) => s + a.balance, 0) + unassignedBalance;
   const totalAR = accountsReceivable.reduce((s, r) => s + r.outstanding, 0);
@@ -1395,6 +1403,8 @@ function BalanceSheetView({ filterYear, showToast, data, act, companyName }) {
 
     // Equity
     pdfSection("Equity");
+    if (ownerContributions > 0) pdfRow("Owner's Contributions", ownerContributions);
+    if (ownerDraws > 0) pdfRow("Owner's Draws", -ownerDraws);
     pdfRow("Retained Earnings (Net Income)", retainedEarnings);
     pdfTotal("Total Equity", totalEquity);
 
@@ -1421,6 +1431,8 @@ function BalanceSheetView({ filterYear, showToast, data, act, companyName }) {
       ...accountsReceivable.map(r => ({ Section: "Assets", Item: `A/R — ${r.clientName}`, Amount: r.outstanding })),
       { Section: "Assets", Item: "TOTAL ASSETS", Amount: totalAssets },
       { Section: "Liabilities", Item: "TOTAL LIABILITIES", Amount: 0 },
+      { Section: "Equity", Item: "Owner's Contributions", Amount: ownerContributions },
+      { Section: "Equity", Item: "Owner's Draws", Amount: -ownerDraws },
       { Section: "Equity", Item: "Retained Earnings (Net Income)", Amount: retainedEarnings },
       { Section: "Equity", Item: "TOTAL EQUITY", Amount: totalEquity },
       { Section: "", Item: "TOTAL LIABILITIES + EQUITY", Amount: totalLiabilities + totalEquity },
@@ -1514,7 +1526,8 @@ function BalanceSheetView({ filterYear, showToast, data, act, companyName }) {
 
       {/* EQUITY */}
       {qboRow("Equity", null, 1)}
-      {ownerInvestments > 0 && qboRow("Owner Investments", ownerInvestments, 2)}
+      {ownerContributions > 0 && qboRow("Owner's Contributions", ownerContributions, 2)}
+      {ownerDraws > 0 && qboRow("Owner's Draws", -ownerDraws, 2)}
       {invoiceRevenue > 0 && qboRow("Retained Earnings", invoiceRevenue - totalExpenses, 2)}
       {qboRow("Net Income", retainedEarnings, 2)}
       {qboTotal("Total for Equity", totalEquity, 1)}
@@ -1523,6 +1536,130 @@ function BalanceSheetView({ filterYear, showToast, data, act, companyName }) {
         <span style={{ fontSize: 13, fontWeight: 700, color: theme.text }}>Total for Liabilities and Equity</span>
         <span style={{ fontSize: 13, fontWeight: 700, color: theme.text, minWidth: 130, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{fmt(totalLiabilities + totalEquity)}</span>
       </div>
+    </div>
+  </div>;
+}
+
+// ═══════════════════════════════════════
+// CHART OF ACCOUNTS — categories (income / expense / equity) + bank & cash accounts
+// ═══════════════════════════════════════
+const CORE_CATEGORY_IDS = new Set(["bkc_revenue", "bkc_cogs", "bkc_owner_contrib", "bkc_owner_draws"]);
+const CATEGORY_TYPES = [["income", "Income"], ["expense", "Expense"], ["equity", "Owner equity"]];
+const ACCOUNT_TYPES = [["checking", "Checking"], ["savings", "Savings"], ["credit_card", "Credit card"], ["cash", "Cash"], ["other", "Other"]];
+
+function ChartOfAccountsView({ data, act, showToast, canEdit }) {
+  const [catModal, setCatModal] = useState(null);   // null | "new" | category
+  const [acctModal, setAcctModal] = useState(null); // null | "new" | account
+  const categories = data.categories || [];
+  const accounts = data.accounts || [];
+  const usage = {};
+  for (const t of data.transactions || []) { if (t.categoryId) usage[t.categoryId] = (usage[t.categoryId] || 0) + 1; }
+  const acctUsage = {};
+  for (const t of data.transactions || []) { if (t.accountId) acctUsage[t.accountId] = (acctUsage[t.accountId] || 0) + 1; }
+
+  const saveCategory = async (c) => {
+    const ok = await act("upsert_category", { ...c, id: c.id || ("bkc_" + genId()), sortOrder: c.sortOrder ?? (categories.length + 100) });
+    if (ok) { showToast(c.id ? "Category updated" : "Category added"); setCatModal(null); }
+  };
+  const removeCategory = async (c) => {
+    const n = usage[c.id] || 0;
+    if (!confirm(`Delete "${c.name}"?${n ? ` ${n} transaction${n === 1 ? "" : "s"} will become uncategorized.` : ""}`)) return;
+    if (await act("delete_category", { id: c.id })) showToast("Category deleted");
+  };
+  const saveAccount = async (a) => {
+    const ok = await act("upsert_account", { ...a, id: a.id || ("acct_" + genId()) });
+    if (ok) { showToast(a.id ? "Account updated" : "Account added"); setAcctModal(null); }
+  };
+  const removeAccount = async (a) => {
+    const n = acctUsage[a.id] || 0;
+    if (!confirm(`Delete "${a.name}"?${n ? ` ${n} transaction${n === 1 ? "" : "s"} will be left with no account.` : ""}`)) return;
+    if (await act("delete_account", { id: a.id })) showToast("Account deleted");
+  };
+
+  const section = (type, label) => {
+    const rows = categories.filter(c => c.type === type).sort((a, b) => (a.sortOrder - b.sortOrder) || a.name.localeCompare(b.name));
+    const parents = rows.filter(c => !c.parent);
+    const children = (pid) => rows.filter(c => c.parent === pid);
+    const row = (c, depth) => <tr key={c.id} style={{ borderBottom: `1px solid ${theme.borderLight}` }}>
+      <td style={{ padding: "9px 14px", fontSize: 13, paddingLeft: 14 + depth * 22, fontWeight: depth ? 400 : 500 }}>{depth > 0 && <span style={{ color: theme.textMuted, marginRight: 6 }}>└</span>}{c.name}{CORE_CATEGORY_IDS.has(c.id) && <span style={{ marginLeft: 8, fontSize: 10, color: theme.textMuted, fontWeight: 600, letterSpacing: "0.05em" }}>CORE</span>}</td>
+      <td style={{ padding: "9px 14px", fontSize: 12, color: theme.textMuted, textAlign: "right", whiteSpace: "nowrap" }}>{usage[c.id] ? `${usage[c.id]} txn${usage[c.id] === 1 ? "" : "s"}` : "—"}</td>
+      <td style={{ padding: "9px 14px", textAlign: "right", whiteSpace: "nowrap" }}>{canEdit && <>
+        <Btn size="sm" variant="ghost" icon={BkIcons.edit} onClick={() => setCatModal(c)} title="Edit" />
+        {!CORE_CATEGORY_IDS.has(c.id) && <Btn size="sm" variant="ghost" icon={BkIcons.trash} style={{ color: theme.danger }} onClick={() => removeCategory(c)} title="Delete" />}
+      </>}</td>
+    </tr>;
+    return <div key={type} style={{ marginBottom: 20 }}>
+      <div style={{ padding: "12px 14px", background: theme.surfaceAlt, fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: theme.textSecondary, display: "flex", justifyContent: "space-between", alignItems: "center" }}>{label}<span style={{ fontWeight: 500, textTransform: "none", letterSpacing: 0 }}>{rows.length} account{rows.length === 1 ? "" : "s"}</span></div>
+      {rows.length === 0 ? <div style={{ padding: "14px", fontSize: 13, color: theme.textMuted }}>None yet.</div> :
+        <table style={{ width: "100%" }}><tbody>{parents.map(p => [row(p, 0), ...children(p.id).map(c => row(c, 1))])}</tbody></table>}
+    </div>;
+  };
+
+  return <div>
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14, flexWrap: "wrap", gap: 10 }}>
+      <div style={{ fontSize: 13, color: theme.textSecondary, maxWidth: 560 }}>Income and expense categories drive the P&L. <b>Owner equity</b> (contributions and draws) moves money without touching profit and shows on the Balance Sheet. Bank &amp; cash accounts are what you reconcile against.</div>
+      {canEdit && <div style={{ display: "flex", gap: 8 }}><Btn size="sm" variant="secondary" icon={BkIcons.plus} onClick={() => setAcctModal("new")}>Bank Account</Btn><Btn size="sm" icon={BkIcons.plus} onClick={() => setCatModal("new")}>Category</Btn></div>}
+    </div>
+
+    <div style={{ background: theme.surface, borderRadius: theme.radius, border: `1px solid ${theme.borderLight}`, overflow: "hidden", marginBottom: 20 }}>
+      {CATEGORY_TYPES.map(([type, label]) => section(type, label))}
+    </div>
+
+    <div style={{ background: theme.surface, borderRadius: theme.radius, border: `1px solid ${theme.borderLight}`, overflow: "hidden" }}>
+      <div style={{ padding: "12px 14px", background: theme.surfaceAlt, fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: theme.textSecondary }}>Bank &amp; cash accounts</div>
+      {accounts.length === 0 ? <div style={{ padding: "14px", fontSize: 13, color: theme.textMuted }}>No accounts yet — add your checking account so imports and the Balance Sheet have somewhere to land.</div> :
+        <table style={{ width: "100%" }}><tbody>{accounts.map(a => <tr key={a.id} style={{ borderBottom: `1px solid ${theme.borderLight}` }}>
+          <td style={{ padding: "9px 14px", fontSize: 13, fontWeight: 500 }}>{a.name}</td>
+          <td style={{ padding: "9px 14px", fontSize: 12, color: theme.textSecondary }}>{(ACCOUNT_TYPES.find(t => t[0] === a.accountType) || [])[1] || a.accountType}</td>
+          <td style={{ padding: "9px 14px", fontSize: 12, color: theme.textMuted, textAlign: "right", whiteSpace: "nowrap" }}>{acctUsage[a.id] ? `${acctUsage[a.id]} txns` : "—"}</td>
+          <td style={{ padding: "9px 14px", textAlign: "right", whiteSpace: "nowrap" }}>{canEdit && <><Btn size="sm" variant="ghost" icon={BkIcons.edit} onClick={() => setAcctModal(a)} title="Edit" /><Btn size="sm" variant="ghost" icon={BkIcons.trash} style={{ color: theme.danger }} onClick={() => removeAccount(a)} title="Delete" /></>}</td>
+        </tr>)}</tbody></table>}
+    </div>
+
+    <Modal open={!!catModal} onClose={() => setCatModal(null)} title={catModal === "new" ? "New Category" : "Edit Category"}>
+      {catModal && <CategoryForm item={catModal === "new" ? null : catModal} categories={categories} onSave={saveCategory} onCancel={() => setCatModal(null)} />}
+    </Modal>
+    <Modal open={!!acctModal} onClose={() => setAcctModal(null)} title={acctModal === "new" ? "New Bank Account" : "Edit Bank Account"}>
+      {acctModal && <AccountForm item={acctModal === "new" ? null : acctModal} onSave={saveAccount} onCancel={() => setAcctModal(null)} />}
+    </Modal>
+  </div>;
+}
+
+function CategoryForm({ item, categories, onSave, onCancel }) {
+  const [form, setForm] = useState({ name: "", type: "expense", parent: "", ...(item || {}) });
+  const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
+  const parents = categories.filter(c => c.type === form.type && !c.parent && c.id !== form.id);
+  const isCore = item && CORE_CATEGORY_IDS.has(item.id);
+  return <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+    <Input label="Name *" value={form.name} onChange={e => set("name", e.target.value)} placeholder="e.g. Software & Subscriptions" />
+    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+      <Select label="Type *" value={form.type} onChange={e => { set("type", e.target.value); set("parent", ""); }} disabled={isCore}>
+        {CATEGORY_TYPES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+      </Select>
+      <Select label="Sub-account of" value={form.parent || ""} onChange={e => set("parent", e.target.value)}>
+        <option value="">— None (top level) —</option>
+        {parents.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+      </Select>
+    </div>
+    {isCore && <div style={{ fontSize: 12, color: theme.textMuted }}>This is a core account the reports depend on — you can rename it, but not change its type or delete it.</div>}
+    <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+      <Btn variant="secondary" onClick={onCancel}>Cancel</Btn>
+      <Btn onClick={() => form.name.trim() && onSave({ ...form, name: form.name.trim(), parent: form.parent || null })}>Save</Btn>
+    </div>
+  </div>;
+}
+
+function AccountForm({ item, onSave, onCancel }) {
+  const [form, setForm] = useState({ name: "", accountType: "checking", ...(item || {}) });
+  const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
+  return <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+    <Input label="Name *" value={form.name} onChange={e => set("name", e.target.value)} placeholder="e.g. Chase Business Checking ••1234" />
+    <Select label="Type" value={form.accountType} onChange={e => set("accountType", e.target.value)}>
+      {ACCOUNT_TYPES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+    </Select>
+    <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+      <Btn variant="secondary" onClick={onCancel}>Cancel</Btn>
+      <Btn onClick={() => form.name.trim() && onSave({ ...form, name: form.name.trim() })}>Save</Btn>
     </div>
   </div>;
 }

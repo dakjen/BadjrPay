@@ -94,15 +94,6 @@ function StatusBadge({ status }) {
   return <span style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "3px 10px", borderRadius: 20, fontSize: 12, fontWeight: 600, background: s.bg, color: s.color, letterSpacing: "0.02em", fontFamily: "'DM Sans', sans-serif" }}><span style={{ width: 6, height: 6, borderRadius: "50%", background: s.color, opacity: 0.7 }} />{s.label}</span>;
 }
 
-const INVOICE_STATUSES = [["draft", "Draft"], ["sent", "Sent"], ["viewed", "Viewed"], ["partial", "Partial"], ["paid", "Paid"], ["overdue", "Overdue"]];
-function StatusSelect({ status, onChange }) {
-  const styles = { draft: { bg: theme.surfaceAlt, color: theme.textSecondary }, sent: { bg: theme.blueLight, color: theme.blue }, viewed: { bg: theme.warningLight, color: theme.warning }, paid: { bg: theme.successLight, color: theme.success }, overdue: { bg: theme.dangerLight, color: theme.danger }, partial: { bg: theme.warningLight, color: theme.warning } };
-  const st = styles[status] || styles.draft;
-  return <select value={status} onChange={e => onChange(e.target.value)} onClick={e => e.stopPropagation()} title="Change status" style={{ appearance: "none", WebkitAppearance: "none", padding: "3px 22px 3px 10px", borderRadius: 20, fontSize: 12, fontWeight: 600, background: `${st.bg} url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='${encodeURIComponent(st.color)}' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E") no-repeat right 7px center`, color: st.color, border: "none", cursor: "pointer", fontFamily: "'DM Sans', sans-serif", letterSpacing: "0.02em" }}>
-    {INVOICE_STATUSES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-  </select>;
-}
-
 function Btn({ children, onClick, variant = "primary", size = "md", icon, style: sx, disabled, ...props }) {
   const base = { display: "inline-flex", alignItems: "center", gap: 6, border: "none", cursor: disabled ? "not-allowed" : "pointer", fontFamily: "'DM Sans', sans-serif", fontWeight: 500, borderRadius: theme.radiusSm, transition: "all 0.15s ease", whiteSpace: "nowrap", opacity: disabled ? 0.5 : 1 };
   const sizes = { sm: { padding: "6px 12px", fontSize: 12 }, md: { padding: "8px 16px", fontSize: 13 }, lg: { padding: "10px 20px", fontSize: 14 } };
@@ -639,15 +630,6 @@ export default function InvoicingPlatform() {
 
   const updateInvoiceStatus = (id, status) => updateNow("invoices", data.invoices.map(i => i.id === id ? { ...i, status, ...(status === "sent" ? { sentAt: today() } : {}), ...(status === "paid" ? { amountPaid: i.total, paidAt: today() } : {}) } : i));
 
-  const setInvoiceStatus = (id, status) => updateNow("invoices", data.invoices.map(i => {
-    if (i.id !== id) return i;
-    const wasPaid = i.status === "paid";
-    if (status === "paid") return { ...i, status, amountPaid: i.total, paidAt: i.paidAt || today() };
-    if (status === "partial") return { ...i, status, paidAt: "", amountPaid: wasPaid ? 0 : (i.amountPaid || 0) };
-    // draft / sent / viewed / overdue: not paid — clear the paid date, and undo a full "paid" amount
-    return { ...i, status, paidAt: "", amountPaid: wasPaid ? 0 : (i.amountPaid || 0), ...(status === "sent" && !i.sentAt ? { sentAt: today() } : {}) };
-  }));
-
   const getInvoicePayLink = async (inv) => {
     const r = await fetch("/api/billing", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "invoice_link", data: { invoiceId: inv.id } }) });
     const body = await r.json().catch(() => ({}));
@@ -750,10 +732,10 @@ export default function InvoicingPlatform() {
       </nav>}
 
       {/* Content */}
-      <main style={{ flex: 1, padding: isMobile ? "16px 14px" : "24px 28px", paddingBottom: isMobile ? 80 : undefined, maxWidth: isMobile ? "100%" : 960, width: "100%", overflowY: "auto" }}>
+      <main style={{ flex: 1, padding: isMobile ? "16px 14px" : "24px 28px", paddingBottom: isMobile ? 80 : undefined, maxWidth: isMobile ? "100%" : 1400, width: "100%", overflowY: "auto" }}>
         {page === "dashboard" && <DashboardView {...{ data, totalRevenue, outstanding, overdueCount, draftCount, setPage, setModal, updateInvoiceStatus, handleDownloadPDF, handleSendEmail }} />}
-        {page === "invoices" && !viewInvoice && <InvoicesView {...{ data, setModal, setEditItem, setViewInvoice, deleteInvoice, updateInvoiceStatus, setInvoiceStatus, handleCopyPayLink, handleDownloadPDF, handleSendEmail, handleSendOverdue }} />}
-        {page === "invoices" && viewInvoice && <InvoiceDetailView invoice={data.invoices.find(i => i.id === viewInvoice.id) || viewInvoice} data={data} onBack={() => setViewInvoice(null)} updateStatus={updateInvoiceStatus} markPartial={markPartialPayment} markInstallmentPaid={markInstallmentPaid} setInvoiceStatus={setInvoiceStatus} handleCopyPayLink={handleCopyPayLink} handleDownloadPDF={handleDownloadPDF} handleSendEmail={handleSendEmail} handleSendOverdue={handleSendOverdue} />}
+        {page === "invoices" && !viewInvoice && <InvoicesView {...{ data, setModal, setEditItem, setViewInvoice, deleteInvoice, updateInvoiceStatus, handleCopyPayLink, handleDownloadPDF, handleSendEmail, handleSendOverdue }} />}
+        {page === "invoices" && viewInvoice && <InvoiceDetailView invoice={data.invoices.find(i => i.id === viewInvoice.id) || viewInvoice} data={data} onBack={() => setViewInvoice(null)} updateStatus={updateInvoiceStatus} markPartial={markPartialPayment} markInstallmentPaid={markInstallmentPaid} handleCopyPayLink={handleCopyPayLink} handleDownloadPDF={handleDownloadPDF} handleSendEmail={handleSendEmail} handleSendOverdue={handleSendOverdue} />}
         {page === "clients" && <ClientsView {...{ data, setModal, setEditItem, deleteClient }} />}
         {page === "projects" && <ProjectsView {...{ data, setModal, setEditItem, deleteProject, saveProject }} />}
         {page === "services" && <ServicesView {...{ data, setModal, setEditItem, deleteService }} />}
@@ -827,7 +809,7 @@ function DashboardView({ data, totalRevenue, outstanding, overdueCount, draftCou
   </div>;
 }
 
-function InvoicesView({ data, setModal, setEditItem, setViewInvoice, deleteInvoice, updateInvoiceStatus, setInvoiceStatus, handleCopyPayLink, handleDownloadPDF, handleSendEmail, handleSendOverdue }) {
+function InvoicesView({ data, setModal, setEditItem, setViewInvoice, deleteInvoice, updateInvoiceStatus, handleCopyPayLink, handleDownloadPDF, handleSendEmail, handleSendOverdue }) {
   const [filter, setFilter] = useState("all");
   const filtered = data.invoices.filter(i => filter === "all" || i.status === filter).sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
   const tabs = [{ id: "all", label: "All" }, { id: "draft", label: "Draft" }, { id: "sent", label: "Sent" }, { id: "paid", label: "Paid" }, { id: "overdue", label: "Overdue" }];
@@ -858,7 +840,7 @@ function InvoicesView({ data, setModal, setEditItem, setViewInvoice, deleteInvoi
               <td style={{ padding: "10px 14px", color: inv.dueDate && new Date(inv.dueDate) < new Date() && inv.status !== "paid" ? theme.danger : theme.textSecondary, fontSize: 12 }}>{inv.dueDate ? fmtDate(inv.dueDate) : "-"}</td>
               <td style={{ padding: "10px 14px", fontWeight: 600, fontFamily: "'Fraunces', serif" }}>{fmt(inv.total || 0)}</td>
               <td style={{ padding: "10px 14px", fontWeight: 500, color: balance > 0 ? theme.warning : theme.success, fontFamily: "'Fraunces', serif" }}>{balance > 0 ? fmt(balance) : "—"}</td>
-              <td style={{ padding: "10px 14px" }} onClick={e => e.stopPropagation()}><StatusSelect status={inv.status} onChange={s => setInvoiceStatus(inv.id, s)} />{(inv.onlinePayments || []).some(p => p.status === "processing") && <div style={{ fontSize: 10, color: theme.warning, fontWeight: 600, marginTop: 4 }}>ACH clearing</div>}</td>
+              <td style={{ padding: "10px 14px" }}><StatusBadge status={inv.status} />{(inv.onlinePayments || []).some(p => p.status === "processing") && <div style={{ fontSize: 10, color: theme.warning, fontWeight: 600, marginTop: 4 }}>ACH clearing</div>}</td>
               <td style={{ padding: "10px 14px" }} onClick={e => e.stopPropagation()}>
                 <div style={{ display: "flex", gap: 3 }}>
                   <Btn size="sm" variant="secondary" icon={Icons.download} onClick={() => handleDownloadPDF(inv)} title="Download PDF" />
@@ -876,7 +858,7 @@ function InvoicesView({ data, setModal, setEditItem, setViewInvoice, deleteInvoi
   </div>;
 }
 
-function InvoiceDetailView({ invoice: inv, data, onBack, updateStatus, markPartial, markInstallmentPaid, setInvoiceStatus, handleCopyPayLink, handleDownloadPDF, handleSendEmail, handleSendOverdue }) {
+function InvoiceDetailView({ invoice: inv, data, onBack, updateStatus, markPartial, markInstallmentPaid, handleCopyPayLink, handleDownloadPDF, handleSendEmail, handleSendOverdue }) {
   const [payAmount, setPayAmount] = useState("");
   const [sending, setSending] = useState(false);
   const [sendingReminder, setSendingReminder] = useState(false);
@@ -896,7 +878,6 @@ function InvoiceDetailView({ invoice: inv, data, onBack, updateStatus, markParti
       {inv.status === "overdue" && <Btn variant="danger" icon={sendingReminder ? <span className="spin" style={{ display: "inline-flex" }}>{Icons.spinner}</span> : Icons.mail} onClick={onSendReminder} disabled={sendingReminder}>{sendingReminder ? "Sending..." : "Send Overdue Reminder"}</Btn>}
       {inv.status !== "paid" && <Btn variant="secondary" icon={Icons.link} onClick={() => handleCopyPayLink(inv)}>Payment Link</Btn>}
       {inv.status !== "paid" && <Btn variant="success" icon={Icons.check} onClick={() => { if (confirm(`Mark ${inv.number} as paid in full (${fmt(inv.total || 0)})?`)) updateStatus(inv.id, "paid"); }}>Paid</Btn>}
-      <div style={{ display: "flex", alignItems: "center", gap: 8, marginLeft: "auto" }}><span style={{ fontSize: 12, color: theme.textMuted }}>Status</span><StatusSelect status={inv.status} onChange={s => setInvoiceStatus(inv.id, s)} /></div>
     </div>
 
     <div style={{ background: theme.surface, borderRadius: theme.radius, border: `1px solid ${theme.borderLight}`, padding: "28px 32px" }}>
