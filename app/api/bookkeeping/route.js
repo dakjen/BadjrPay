@@ -39,7 +39,7 @@ export async function GET(req) {
       return NextResponse.json({ balanceSheet }, { headers: { "Cache-Control": "no-store" } });
     }
 
-    const data = await getBookkeepingData(year, month);
+    const data = await getBookkeepingData(year, month, searchParams.get("start"), searchParams.get("end"));
     return NextResponse.json(data, { headers: { "Cache-Control": "no-store" } });
   } catch (e) {
     return NextResponse.json({ error: e.message }, { status: 500 });

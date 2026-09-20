@@ -130,12 +130,27 @@ async function bkPost(action, data) {
 // ═══════════════════════════════════════
 // MAIN SHELL
 // ═══════════════════════════════════════
+// Reporting period → { start, end, asOf, label, tag }. YTD/quarters cap at today so "as of" never runs into the future.
+const MONTH_NAMES = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+export function periodRange(year, period) {
+  const pad = (n) => String(n).padStart(2, "0");
+  const lastDay = (m) => new Date(year, m, 0).getDate();
+  const todayIso = today();
+  const cap = (iso) => (iso > todayIso ? todayIso : iso);
+  let start = `${year}-01-01`, end = `${year}-12-31`, label = `January – December ${year}`, tag = `${year}`;
+  if (period === "ytd") { end = cap(end); label = `Year to date (Jan 1 – ${fmtDate(end)})`; tag = `${year}_YTD`; }
+  else if (/^q[1-4]$/.test(period)) { const q = Number(period[1]); const m1 = (q - 1) * 3 + 1, m3 = m1 + 2; start = `${year}-${pad(m1)}-01`; end = `${year}-${pad(m3)}-${pad(lastDay(m3))}`; label = `Q${q} ${year} (${MONTH_NAMES[m1 - 1].slice(0, 3)} – ${MONTH_NAMES[m3 - 1].slice(0, 3)})`; tag = `${year}_Q${q}`; }
+  else if (/^m\d{1,2}$/.test(period)) { const m = Number(period.slice(1)); start = `${year}-${pad(m)}-01`; end = `${year}-${pad(m)}-${pad(lastDay(m))}`; label = `${MONTH_NAMES[m - 1]} ${year}`; tag = `${year}_${pad(m)}`; }
+  return { start, end, asOf: cap(end), label, tag, period };
+}
+
 export function BookkeepingShell({ session, showToast }) {
   const [tab, setTab] = useState("dashboard");
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [filterYear, setFilterYear] = useState(new Date().getFullYear());
-  const [filterMonth, setFilterMonth] = useState(0); // 0 = all months
+  const [period, setPeriod] = useState("year"); // year | ytd | q1..q4 | m1..m12
+  const range = periodRange(filterYear, period);
 
   const role = session?.user?.role || "owner";
   const canEdit = role === "owner" || role === "admin";
@@ -145,7 +160,7 @@ export function BookkeepingShell({ session, showToast }) {
   const reload = async () => {
     try {
       setLoading(true);
-      const d = await bkFetch({ year: filterYear, month: filterMonth || undefined });
+      const d = await bkFetch({ year: filterYear, start: range.start, end: range.end });
       setData(d);
     } catch (e) {
       showToast(e.message, "error");
@@ -154,7 +169,7 @@ export function BookkeepingShell({ session, showToast }) {
     }
   };
 
-  useEffect(() => { reload(); }, [filterYear, filterMonth]);
+  useEffect(() => { reload(); }, [filterYear, period]);
 
   const act = async (action, payload) => {
     try {
@@ -189,8 +204,11 @@ export function BookkeepingShell({ session, showToast }) {
         <select value={filterYear} onChange={e => setFilterYear(parseInt(e.target.value))} style={{ padding: "6px 10px", border: `1px solid ${theme.border}`, borderRadius: theme.radiusSm, fontSize: 13, fontFamily: "'DM Sans', sans-serif", background: theme.surface }}>
           {years.map(y => <option key={y} value={y}>{y}</option>)}
         </select>
-        <select value={filterMonth} onChange={e => setFilterMonth(parseInt(e.target.value))} style={{ padding: "6px 10px", border: `1px solid ${theme.border}`, borderRadius: theme.radiusSm, fontSize: 13, fontFamily: "'DM Sans', sans-serif", background: theme.surface }}>
-          {months.map((m, i) => <option key={i} value={i}>{m}</option>)}
+        <select value={period} onChange={e => setPeriod(e.target.value)} style={{ padding: "6px 10px", border: `1px solid ${theme.border}`, borderRadius: theme.radiusSm, fontSize: 13, fontFamily: "'DM Sans', sans-serif", background: theme.surface }}>
+          <option value="year">Full year</option>
+          <option value="ytd">Year to date</option>
+          <option value="q1">Q1 (Jan–Mar)</option><option value="q2">Q2 (Apr–Jun)</option><option value="q3">Q3 (Jul–Sep)</option><option value="q4">Q4 (Oct–Dec)</option>
+          {months.slice(1).map((m, i) => <option key={m} value={`m${i + 1}`}>{m}</option>)}
         </select>
       </div>
     </div>
@@ -216,8 +234,8 @@ export function BookkeepingShell({ session, showToast }) {
         <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: theme.textSecondary, margin: "32px 0 10px", paddingTop: 24, borderTop: `1px solid ${theme.borderLight}` }}>Contractors (1099)</div>
         <ContractorView data={data} act={act} showToast={showToast} canEdit={canEdit} filterYear={filterYear} />
       </>}
-      {tab === "pnl" && <PnLView filterYear={filterYear} filterMonth={filterMonth} showToast={showToast} data={data} act={act} companyName={data?.companyName} />}
-      {tab === "balance_sheet" && <BalanceSheetView filterYear={filterYear} showToast={showToast} data={data} act={act} companyName={data?.companyName} />}
+      {tab === "pnl" && <PnLView filterYear={filterYear} range={range} showToast={showToast} data={data} act={act} companyName={data?.companyName} />}
+      {tab === "balance_sheet" && <BalanceSheetView filterYear={filterYear} range={range} showToast={showToast} data={data} act={act} companyName={data?.companyName} />}
       {tab === "accounts" && <ChartOfAccountsView data={data} act={act} showToast={showToast} canEdit={canEdit} />}
     </>}
   </div>;
@@ -1231,19 +1249,15 @@ function ContractorPaymentForm({ contractorId, onSave, onCancel }) {
 // ═══════════════════════════════════════
 // P&L REPORT
 // ═══════════════════════════════════════
-function PnLView({ filterYear, filterMonth, showToast, data, act, companyName }) {
+function PnLView({ filterYear, range, showToast, data, act, companyName }) {
   const [pnlData, setPnlData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [expenseOpen, setExpenseOpen] = useState(false);
   const [expenseForm, setExpenseForm] = useState({ date: today(), description: "", amount: "", categoryId: "", accountId: "" });
   const [saving, setSaving] = useState(false);
 
-  const startDate = filterMonth > 0
-    ? `${filterYear}-${String(filterMonth).padStart(2, "0")}-01`
-    : `${filterYear}-01-01`;
-  const endDate = filterMonth > 0
-    ? `${filterYear}-${String(filterMonth).padStart(2, "0")}-${new Date(filterYear, filterMonth, 0).getDate()}`
-    : `${filterYear}-12-31`;
+  const startDate = range.start;
+  const endDate = range.end;
 
   const fetchPnl = () => {
     setLoading(true);
@@ -1306,7 +1320,7 @@ function PnLView({ filterYear, filterMonth, showToast, data, act, companyName })
   const netIncome = grossProfit - totalOpex - totalPayroll - totalContractor;
 
   const monthNames = ["", "January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
-  const periodLabel = filterMonth > 0 ? `${monthNames[filterMonth]} ${filterYear}` : `January - December ${filterYear}`;
+  const periodLabel = range.label;
 
   const Section = ({ title, items, total, totalLabel }) => (
     <div style={{ marginBottom: 20 }}>
@@ -1338,7 +1352,7 @@ function PnLView({ filterYear, filterMonth, showToast, data, act, companyName })
       { Section: "Contractors", Category: "TOTAL CONTRACTORS", Amount: totalContractor },
       { Section: "", Category: "NET INCOME", Amount: netIncome },
     ];
-    exportCSV(rows, `pnl_${filterYear}${filterMonth ? `_${filterMonth}` : ""}.csv`);
+    exportCSV(rows, `pnl_${range.tag}.csv`);
     showToast("Exported P&L CSV");
   };
 
@@ -1404,7 +1418,7 @@ function PnLView({ filterYear, filterMonth, showToast, data, act, companyName })
 
     const blob = doc.output("blob");
     const url = URL.createObjectURL(blob);
-    const a = document.createElement("a"); a.href = url; a.download = `PnL_${filterYear}${filterMonth ? `_${filterMonth}` : ""}.pdf`; a.click();
+    const a = document.createElement("a"); a.href = url; a.download = `PnL_${range.tag}.pdf`; a.click();
     URL.revokeObjectURL(url);
     showToast("Downloaded P&L PDF");
   };
@@ -1538,7 +1552,7 @@ function PnLView({ filterYear, filterMonth, showToast, data, act, companyName })
 // ═══════════════════════════════════════
 // BALANCE SHEET
 // ═══════════════════════════════════════
-function BalanceSheetView({ filterYear, showToast, data, act, companyName }) {
+function BalanceSheetView({ filterYear, range, showToast, data, act, companyName }) {
   const [bsData, setBsData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [investOpen, setInvestOpen] = useState(false);
@@ -1546,9 +1560,7 @@ function BalanceSheetView({ filterYear, showToast, data, act, companyName }) {
   const [saving, setSaving] = useState(false);
 
   const currentYear = new Date().getFullYear();
-  const asOf = filterYear >= currentYear
-    ? new Date().toISOString().split("T")[0]
-    : `${filterYear}-12-31`;
+  const asOf = range.asOf; // end of the selected period (never later than today)
 
   const fetchBs = () => {
     setLoading(true);
@@ -1689,7 +1701,7 @@ function BalanceSheetView({ filterYear, showToast, data, act, companyName }) {
 
     const blob = doc.output("blob");
     const url = URL.createObjectURL(blob);
-    const a = document.createElement("a"); a.href = url; a.download = `BalanceSheet_${filterYear}.pdf`; a.click();
+    const a = document.createElement("a"); a.href = url; a.download = `BalanceSheet_${range.tag}.pdf`; a.click();
     URL.revokeObjectURL(url);
     showToast("Downloaded Balance Sheet PDF");
   };
@@ -1707,7 +1719,7 @@ function BalanceSheetView({ filterYear, showToast, data, act, companyName }) {
       { Section: "Equity", Item: "TOTAL EQUITY", Amount: totalEquity },
       { Section: "", Item: "TOTAL LIABILITIES + EQUITY", Amount: totalLiabilities + totalEquity },
     ];
-    exportCSV(rows, `balance_sheet_${filterYear}.csv`);
+    exportCSV(rows, `balance_sheet_${range.tag}.csv`);
     showToast("Exported Balance Sheet CSV");
   };
 
