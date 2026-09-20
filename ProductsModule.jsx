@@ -9,14 +9,14 @@ import { readHash, writeHash } from "./lib/hash-state";
 const theme = {
   surface: "#FFFFFF", surfaceAlt: "#F0EDE6", border: "#E2DDD3", borderLight: "#EDE9E1",
   text: "#1A1A1A", textSecondary: "#6B6560", textMuted: "#9C9590",
-  accent: "#2D5A3D", accentLight: "#E8F0EB", warning: "#C4841D", warningLight: "#FFF4E5", danger: "#B5342B", dangerLight: "#FDE8E7", success: "#2D7A4F", successLight: "#E3F5EC", blue: "#2B5EA7", blueLight: "#E8F0FB",
+  accent: "#476C2E", accentLight: "#EAF1E3", warning: "#B8811A", warningLight: "#FFF3DC", danger: "#8A1C1C", dangerLight: "#F7E5E5", success: "#3F7A2E", successLight: "#E6F1DE", blue: "#0B2D65", blueLight: "#E6ECF7",
   shadowMd: "0 4px 12px rgba(0,0,0,0.08), 0 2px 4px rgba(0,0,0,0.04)", radius: "10px", radiusSm: "6px",
 };
 const sans = "'DM Sans', sans-serif", serif = "'Fraunces', serif";
 const fmt = (n) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(n || 0);
 const fmtK = (n) => Math.abs(n) >= 1000 ? `$${(n / 1000).toFixed(Math.abs(n) >= 10000 ? 0 : 1)}k` : `$${Math.round(n)}`;
 const fmtDate = (d) => { if (!d) return "—"; const [y, m, day] = String(d).slice(0, 10).split("-").map(Number); return new Date(y, m - 1, day).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }); };
-const PALETTE = ["#2E8B57", "#2B5EA7", "#C4841D", "#8E5BB5", "#B5342B", "#D4489A"]; // validated categorical set (light surface)
+const PALETTE = ["#2E8B57", "#0B2D65", "#B8811A", "#8E5BB5", "#8A1C1C", "#D4489A"]; // validated categorical set (light surface)
 const UNASSIGNED = "#9C9590";
 const CATEGORIES = [["saas", "SaaS"], ["custom", "Custom build"], ["consulting", "Consulting"], ["maintenance", "Maintenance"], ["other", "Other"]];
 

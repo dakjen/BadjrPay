@@ -9,11 +9,11 @@ const theme = {
   bg: "#F7F5F0", surface: "#FFFFFF", surfaceAlt: "#F0EDE6",
   border: "#E2DDD3", borderLight: "#EDE9E1",
   text: "#1A1A1A", textSecondary: "#6B6560", textMuted: "#9C9590",
-  accent: "#2D5A3D", accentLight: "#E8F0EB", accentHover: "#1F4A2F",
-  warning: "#C4841D", warningLight: "#FFF4E5",
-  danger: "#B5342B", dangerLight: "#FDE8E7",
-  success: "#2D7A4F", successLight: "#E3F5EC",
-  blue: "#2B5EA7", blueLight: "#E8F0FB",
+  accent: "#476C2E", accentLight: "#EAF1E3", accentHover: "#3A5A25",
+  warning: "#B8811A", warningLight: "#FFF3DC",
+  danger: "#8A1C1C", dangerLight: "#F7E5E5",
+  success: "#3F7A2E", successLight: "#E6F1DE",
+  blue: "#0B2D65", blueLight: "#E6ECF7",
   shadow: "0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04)",
   shadowMd: "0 4px 12px rgba(0,0,0,0.08), 0 2px 4px rgba(0,0,0,0.04)",
   radius: "10px", radiusSm: "6px", radiusLg: "14px",
@@ -248,7 +248,7 @@ export function BookkeepingShell({ session, showToast }) {
 // ═══════════════════════════════════════
 // DASHBOARD
 // ═══════════════════════════════════════
-const CHART_COLORS = ["#2E8B57", "#2B5EA7", "#C4841D"]; // validated categorical trio (light surface)
+const CHART_COLORS = ["#2E8B57", "#0B2D65", "#B8811A"]; // validated categorical trio (light surface)
 const monthKeyOf = (iso) => String(iso || "").slice(0, 7);
 const monthLabel = (key) => { const [y, m] = key.split("-"); return new Date(Number(y), Number(m) - 1, 1).toLocaleDateString("en-US", { month: "short", year: "2-digit" }); };
 const shiftMonth = (key, n) => { const [y, m] = key.split("-").map(Number); const d = new Date(y, m - 1 + n, 1); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`; };

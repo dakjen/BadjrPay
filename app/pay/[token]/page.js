@@ -9,7 +9,7 @@ export const metadata = { title: "Set up payment — Badjr-Pay", robots: { index
 const fmt = (n) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(n);
 const fmtDate = (iso) => { if (!iso) return null; const [y, m, d] = iso.split("-"); return new Date(Number(y), Number(m) - 1, Number(d)).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" }); };
 
-const c = { bg: "#F7F5F0", surface: "#FFFFFF", border: "#E2DDD3", borderLight: "#EDE9E1", text: "#1A1A1A", textSecondary: "#6B6560", textMuted: "#9C9590", accent: "#2D5A3D", accentLight: "#E8F0EB", success: "#2D7A4F", successLight: "#E3F5EC", warning: "#C4841D", warningLight: "#FFF4E5", danger: "#B5342B", dangerLight: "#FDE8E7" };
+const c = { bg: "#F7F5F0", surface: "#FFFFFF", border: "#E2DDD3", borderLight: "#EDE9E1", text: "#1A1A1A", textSecondary: "#6B6560", textMuted: "#9C9590", accent: "#476C2E", accentLight: "#EAF1E3", success: "#3F7A2E", successLight: "#E6F1DE", warning: "#B8811A", warningLight: "#FFF3DC", danger: "#8A1C1C", dangerLight: "#F7E5E5" };
 const serif = "'Fraunces', Georgia, serif";
 const sans = "'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
 
@@ -19,7 +19,7 @@ function Shell({ companyName, children }) {
       <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Fraunces:wght@600;700&display=swap" />
       <div style={{ width: "100%", maxWidth: 480 }}>
         <div style={{ textAlign: "center", marginBottom: 20 }}>
-          <div style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 44, height: 44, borderRadius: 12, background: c.accent, color: "#fff", fontFamily: serif, fontSize: 22, fontWeight: 700, marginBottom: 10 }}>B</div>
+          <img src="/CLEARGREEN-BADJR.png" alt="BaDjR" style={{ height: 40, display: "block", margin: "0 auto 10px" }} />
           <div style={{ fontFamily: serif, fontSize: 20, fontWeight: 700, color: c.accent }}>{companyName || "BaDjR Tech"}</div>
         </div>
         <div style={{ background: c.surface, border: `1px solid ${c.borderLight}`, borderRadius: 14, boxShadow: "0 4px 12px rgba(0,0,0,0.06)", padding: "28px 28px 24px" }}>{children}</div>

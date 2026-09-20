@@ -36,11 +36,11 @@ const theme = {
   bg: "#F7F5F0", surface: "#FFFFFF", surfaceAlt: "#F0EDE6",
   border: "#E2DDD3", borderLight: "#EDE9E1",
   text: "#1A1A1A", textSecondary: "#6B6560", textMuted: "#9C9590",
-  accent: "#2D5A3D", accentLight: "#E8F0EB", accentHover: "#1F4A2F",
-  warning: "#C4841D", warningLight: "#FFF4E5",
-  danger: "#B5342B", dangerLight: "#FDE8E7",
-  success: "#2D7A4F", successLight: "#E3F5EC",
-  blue: "#2B5EA7", blueLight: "#E8F0FB",
+  accent: "#476C2E", accentLight: "#EAF1E3", accentHover: "#3A5A25",
+  warning: "#B8811A", warningLight: "#FFF3DC",
+  danger: "#8A1C1C", dangerLight: "#F7E5E5",
+  success: "#3F7A2E", successLight: "#E6F1DE",
+  blue: "#0B2D65", blueLight: "#E6ECF7",
   shadow: "0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04)",
   shadowMd: "0 4px 12px rgba(0,0,0,0.08), 0 2px 4px rgba(0,0,0,0.04)",
   shadowLg: "0 10px 30px rgba(0,0,0,0.1)",
@@ -188,7 +188,7 @@ function safeDate(d) { if (!d) return "—"; try { const s = String(d).trim(); c
 function buildPayButtonHTML(payUrl) {
   if (!payUrl) return "";
   return `<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin:8px 0 24px;">
-              <tr><td align="center"><a href="${escHtml(payUrl)}" style="display:inline-block;background-color:#2D5A3D;color:#ffffff;text-decoration:none;font-size:15px;font-weight:600;padding:14px 32px;border-radius:8px;">Pay online</a></td></tr>
+              <tr><td align="center"><a href="${escHtml(payUrl)}" style="display:inline-block;background-color:#476C2E;color:#ffffff;text-decoration:none;font-size:15px;font-weight:600;padding:14px 32px;border-radius:8px;">Pay online</a></td></tr>
               <tr><td align="center" style="font-size:12px;color:#888888;padding-top:10px;">Pay by bank account (ACH) or card through Stripe's secure checkout.</td></tr>
             </table>`;
 }
@@ -227,7 +227,7 @@ function buildInvoiceEmailHTML(invoice, settings, payUrl) {
           <td style="background-color:#ffbd5a;padding:24px 32px;">
             <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
               <tr>
-                <td><img src="http://cdn.mcauto-images-production.sendgrid.net/f8d2c7355b303d55/82641b9b-83c5-474f-8b4e-886864a4caff/1000x509.png" alt="BaDjR" width="200" height="100" style="display:block;border:0;border-radius:8px;" /></td>
+                <td><img src="https://badjr-pay.vercel.app/CLEARGREEN-BADJR.png" alt="BaDjR" width="200" height="100" style="display:block;border:0;border-radius:8px;" /></td>
                 <td align="right"><span style="font-size:11px;font-weight:600;color:#0b2d65;background-color:rgba(11,45,101,0.12);padding:4px 12px;border-radius:20px;letter-spacing:0.08em;text-transform:uppercase;">New Invoice</span></td>
               </tr>
             </table>
@@ -615,7 +615,7 @@ export default function InvoicingPlatform() {
 
       {/* Sidebar — desktop only */}
       {!isMobile && <nav style={{ width: 220, background: theme.surface, borderRight: `1px solid ${theme.borderLight}`, display: "flex", flexDirection: "column", padding: "20px 12px", flexShrink: 0, position: "sticky", top: 0, height: "100vh" }}>
-        <div style={{ fontFamily: "'Fraunces', serif", fontSize: 20, fontWeight: 700, color: theme.accent, padding: "4px 12px 20px", letterSpacing: "-0.02em" }}>Badjr-Pay</div>
+        <div style={{ padding: "6px 12px 18px" }}><img src="/CLEARGREEN-BADJR.png" alt="BaDjR" style={{ height: 30, display: "block" }} /><div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.12em", color: theme.textMuted, marginTop: 6, textTransform: "uppercase" }}>Badjr-Pay</div></div>
         <div style={{ display: "flex", flexDirection: "column", gap: 2, flex: 1 }}>
           {navItems.filter(n => !SIDEBAR_BOTTOM.includes(n.id)).map(n => <button key={n.id} onClick={() => navigate(n.id)} style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 12px", border: "none", borderRadius: theme.radiusSm, cursor: "pointer", background: page === n.id ? theme.accentLight : "transparent", color: page === n.id ? theme.accent : theme.textSecondary, fontWeight: page === n.id ? 600 : 400, fontSize: 13, fontFamily: "'DM Sans', sans-serif", transition: "all 0.15s", textAlign: "left" }}>{n.icon}{n.label}</button>)}
         </div>
@@ -1378,8 +1378,8 @@ function SettingsView({ settings, onSave }) {
 // FORMS
 // ═══════════════════════════════════════
 function CategoryForm({ item, onSave, onCancel }) {
-  const [name, setName] = useState(item?.name || ""); const [color, setColor] = useState(item?.color || "#2D5A3D");
-  const colors = ["#2D5A3D", "#2B5EA7", "#C4841D", "#B5342B", "#7B3FA0", "#1A7A8A", "#A06B3F", "#5A5A5A"];
+  const [name, setName] = useState(item?.name || ""); const [color, setColor] = useState(item?.color || "#476C2E");
+  const colors = ["#476C2E", "#0B2D65", "#B8811A", "#8A1C1C", "#7B3FA0", "#1A7A8A", "#A06B3F", "#5A5A5A"];
   return <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
     <Input label="Category Name" value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Design, Development" />
     <div><label style={{ fontSize: 12, fontWeight: 500, color: theme.textSecondary, display: "block", marginBottom: 6 }}>Color</label><div style={{ display: "flex", gap: 6 }}>{colors.map(c => <button key={c} onClick={() => setColor(c)} style={{ width: 28, height: 28, borderRadius: "50%", background: c, border: color === c ? "3px solid #fff" : "2px solid transparent", boxShadow: color === c ? `0 0 0 2px ${c}` : "none", cursor: "pointer" }} />)}</div></div>

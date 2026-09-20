@@ -5,8 +5,8 @@ import { useRouter } from "next/navigation";
 
 const field = { width: "100%", padding: "10px 12px", border: "1px solid #E2DDD3", borderRadius: 8, fontSize: 14, fontFamily: "'DM Sans', sans-serif", outline: "none" };
 const label = { display: "block", fontSize: 12, fontWeight: 600, color: "#6B6560", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 6 };
-const button = (busy) => ({ width: "100%", padding: "11px", background: busy ? "#6B9E7A" : "#2D5A3D", color: "#fff", border: "none", borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: busy ? "not-allowed" : "pointer", fontFamily: "'DM Sans', sans-serif" });
-const linkBtn = { background: "none", border: "none", color: "#2D5A3D", fontSize: 13, cursor: "pointer", fontFamily: "'DM Sans', sans-serif", padding: 0 };
+const button = (busy) => ({ width: "100%", padding: "11px", background: busy ? "#7FA36A" : "#476C2E", color: "#fff", border: "none", borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: busy ? "not-allowed" : "pointer", fontFamily: "'DM Sans', sans-serif" });
+const linkBtn = { background: "none", border: "none", color: "#476C2E", fontSize: 13, cursor: "pointer", fontFamily: "'DM Sans', sans-serif", padding: 0 };
 
 export default function LoginPage() {
   const router = useRouter();
@@ -65,16 +65,14 @@ export default function LoginPage() {
       <style>{`@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&family=Fraunces:wght@700&display=swap'); *{box-sizing:border-box}`}</style>
       <div style={{ width: "100%", maxWidth: 380 }}>
         <div style={{ textAlign: "center", marginBottom: 32 }}>
-          <div style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 56, height: 56, background: "#2D5A3D", borderRadius: 14, marginBottom: 16 }}>
-            <span style={{ fontFamily: "'Fraunces', serif", fontSize: 28, fontWeight: 700, color: "#fff" }}>B</span>
-          </div>
-          <h1 style={{ margin: 0, fontFamily: "'Fraunces', serif", fontSize: 26, fontWeight: 700, color: "#1A1A1A" }}>Badjr-Pay</h1>
+          <img src="/CLEARGREEN-BADJR.png" alt="BaDjR" style={{ height: 44, display: "block", margin: "0 auto 12px" }} />
+          <h1 style={{ margin: 0, fontFamily: "'DM Sans', sans-serif", fontSize: 13, fontWeight: 700, letterSpacing: "0.14em", color: "#9C9590", textTransform: "uppercase" }}>Badjr-Pay</h1>
           <p style={{ margin: "6px 0 0", color: "#6B6560", fontSize: 14 }}>{step === "code" ? "Check your email" : "Sign in to your account"}</p>
         </div>
 
         {step === "password" ? (
           <form onSubmit={submitPassword} style={{ background: "#fff", borderRadius: 14, border: "1px solid #E2DDD3", padding: 28, boxShadow: "0 4px 12px rgba(0,0,0,0.06)" }}>
-            {error && <div style={{ background: "#FDE8E7", color: "#B5342B", padding: "10px 14px", borderRadius: 8, fontSize: 13, marginBottom: 16 }}>{error}</div>}
+            {error && <div style={{ background: "#F7E5E5", color: "#8A1C1C", padding: "10px 14px", borderRadius: 8, fontSize: 13, marginBottom: 16 }}>{error}</div>}
             <div style={{ marginBottom: 16 }}>
               <label style={label}>Email</label>
               <input type="email" value={email} onChange={e => setEmail(e.target.value)} required autoComplete="email" placeholder="you@example.com" style={field} />
@@ -88,8 +86,8 @@ export default function LoginPage() {
           </form>
         ) : (
           <form onSubmit={submitCode} style={{ background: "#fff", borderRadius: 14, border: "1px solid #E2DDD3", padding: 28, boxShadow: "0 4px 12px rgba(0,0,0,0.06)" }}>
-            {error && <div style={{ background: "#FDE8E7", color: "#B5342B", padding: "10px 14px", borderRadius: 8, fontSize: 13, marginBottom: 16 }}>{error}</div>}
-            {notice && <div style={{ background: "#E3F5EC", color: "#2D7A4F", padding: "10px 14px", borderRadius: 8, fontSize: 13, marginBottom: 16 }}>{notice}</div>}
+            {error && <div style={{ background: "#F7E5E5", color: "#8A1C1C", padding: "10px 14px", borderRadius: 8, fontSize: 13, marginBottom: 16 }}>{error}</div>}
+            {notice && <div style={{ background: "#E6F1DE", color: "#3F7A2E", padding: "10px 14px", borderRadius: 8, fontSize: 13, marginBottom: 16 }}>{notice}</div>}
             <p style={{ margin: "0 0 16px", fontSize: 13, color: "#6B6560", lineHeight: 1.5 }}>We emailed a 6-digit code to <b>{sentTo}</b>. It expires in 10 minutes.</p>
             <div style={{ marginBottom: 16 }}>
               <label style={label}>Sign-in code</label>
