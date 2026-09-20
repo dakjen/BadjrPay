@@ -2,6 +2,7 @@
 import { useState, useEffect, useRef } from "react";
 import { estimateTaxes, nextQuarterlyDue } from "./lib/tax";
 import { readHash, writeHash } from "./lib/hash-state";
+import { LOGO_PNG_DATA_URL, LOGO_ASPECT } from "./lib/logo-data";
 import { jsPDF } from "jspdf";
 
 // ── Shared helpers (duplicated from InvoicingPlatform to avoid refactoring monolith) ──
@@ -1365,14 +1366,17 @@ function PnLView({ filterYear, range, showToast, data, act, companyName }) {
     const W = 210, margin = 20, cW = W - margin * 2;
     let y = 20;
 
-    // Header
-    doc.setFillColor(45, 90, 61);
+    // Header — brand gold with the green wordmark
+    doc.setFillColor(255, 189, 89);
     doc.rect(0, 0, W, 36, "F");
-    doc.setTextColor(255, 255, 255);
-    doc.setFont("helvetica", "bold"); doc.setFontSize(18);
-    doc.text("Profit & Loss Statement", margin, 18);
-    doc.setFont("helvetica", "normal"); doc.setFontSize(10);
-    doc.text(periodLabel, margin, 28);
+    let hx = margin;
+    try { const lw = 34, lh = lw / LOGO_ASPECT; doc.addImage(LOGO_PNG_DATA_URL, "PNG", margin, 18 - lh / 2, lw, lh); hx = margin + lw + 8; } catch (_) {}
+    doc.setTextColor(71, 108, 46);
+    doc.setFont("helvetica", "bold"); doc.setFontSize(16);
+    doc.text("Profit & Loss Statement", hx, 17);
+    doc.setTextColor(26, 26, 26);
+    doc.setFont("helvetica", "normal"); doc.setFontSize(9.5);
+    doc.text(periodLabel, hx, 25);
 
     y = 48;
     const D = [26, 26, 26], G = [107, 101, 96];
@@ -1414,9 +1418,9 @@ function PnLView({ filterYear, range, showToast, data, act, companyName }) {
 
     // Net Income
     doc.setFont("helvetica", "bold"); doc.setFontSize(13);
-    doc.setDrawColor(45, 90, 61); doc.setLineWidth(0.5);
+    doc.setDrawColor(71, 108, 46); doc.setLineWidth(0.5);
     doc.line(margin, y, margin + cW, y); y += 8;
-    doc.setTextColor(45, 90, 61);
+    doc.setTextColor(71, 108, 46);
     doc.text("NET INCOME", margin, y);
     doc.text(fmt(netIncome), margin + cW, y, { align: "right" });
 
@@ -1638,13 +1642,16 @@ function BalanceSheetView({ filterYear, range, showToast, data, act, companyName
     const W = 210, margin = 20, cW = W - margin * 2;
     let y = 20;
 
-    doc.setFillColor(45, 90, 61);
+    doc.setFillColor(255, 189, 89);
     doc.rect(0, 0, W, 36, "F");
-    doc.setTextColor(255, 255, 255);
-    doc.setFont("helvetica", "bold"); doc.setFontSize(18);
-    doc.text("Balance Sheet", margin, 18);
-    doc.setFont("helvetica", "normal"); doc.setFontSize(10);
-    doc.text(`As of ${asOfLabel} · Cash basis`, margin, 28);
+    let hx = margin;
+    try { const lw = 34, lh = lw / LOGO_ASPECT; doc.addImage(LOGO_PNG_DATA_URL, "PNG", margin, 18 - lh / 2, lw, lh); hx = margin + lw + 8; } catch (_) {}
+    doc.setTextColor(71, 108, 46);
+    doc.setFont("helvetica", "bold"); doc.setFontSize(16);
+    doc.text("Balance Sheet", hx, 17);
+    doc.setTextColor(26, 26, 26);
+    doc.setFont("helvetica", "normal"); doc.setFontSize(9.5);
+    doc.text(`As of ${asOfLabel} · Cash basis`, hx, 25);
 
     y = 48;
     const D = [26, 26, 26], G = [107, 101, 96];
@@ -1697,9 +1704,9 @@ function BalanceSheetView({ filterYear, range, showToast, data, act, companyName
 
     // Grand total
     doc.setFont("helvetica", "bold"); doc.setFontSize(13);
-    doc.setDrawColor(45, 90, 61); doc.setLineWidth(0.5);
+    doc.setDrawColor(71, 108, 46); doc.setLineWidth(0.5);
     doc.line(margin, y, margin + cW, y); y += 8;
-    doc.setTextColor(45, 90, 61);
+    doc.setTextColor(71, 108, 46);
     doc.text("Total Liabilities + Equity", margin, y);
     doc.text(fmt(totalLiabilities + totalEquity), margin + cW, y, { align: "right" });
 
