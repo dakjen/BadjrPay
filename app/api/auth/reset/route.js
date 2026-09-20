@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { initDb, getUserByEmail } from "@/lib/db";
-import { issueCode, consumeCode, setUserPassword, revokeTrustedDevices } from "@/lib/auth-codes";
+import { issueCode, consumeCode, setUserPassword, revokeTrustedDevices, withinRateLimit, clientIp } from "@/lib/auth-codes";
 import { sendMail, mailProvider } from "@/lib/email";
 import { buildResetEmail } from "@/lib/auth-email";
 import { getBaseUrl } from "@/lib/stripe";
@@ -11,6 +11,7 @@ export async function POST(req) {
   const { email } = await req.json().catch(() => ({}));
   if (!email) return NextResponse.json({ error: "Email required" }, { status: 400 });
   await initDb();
+  if (!(await withinRateLimit(`reset:${clientIp(req)}`, 5, 15))) return NextResponse.json({ error: "Too many requests. Try again in 15 minutes." }, { status: 429 });
   const user = await getUserByEmail(String(email).trim().toLowerCase()) || await getUserByEmail(String(email).trim());
   if (user && mailProvider()) {
     const token = await issueCode(user.id, "reset");

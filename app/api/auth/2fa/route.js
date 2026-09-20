@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { initDb, getUserByEmail } from "@/lib/db";
-import { issueCode, consumeCode, issueTrustedDevice, isTrustedDevice, TRUST_COOKIE } from "@/lib/auth-codes";
+import { issueCode, consumeCode, issueTrustedDevice, isTrustedDevice, TRUST_COOKIE, withinRateLimit, clientIp } from "@/lib/auth-codes";
 import { sendMail, mailProvider } from "@/lib/email";
 import { buildLoginCodeEmail } from "@/lib/auth-email";
 
@@ -14,6 +14,9 @@ export async function POST(req) {
   const { email, password } = await req.json().catch(() => ({}));
   if (!email || !password) return NextResponse.json({ error: "Email and password required" }, { status: 400 });
   await initDb();
+  const okEmail = await withinRateLimit(`pw:${String(email).trim().toLowerCase()}`, 10, 15);
+  const okIp = await withinRateLimit(`ip:${clientIp(req)}`, 40, 15);
+  if (!okEmail || !okIp) return NextResponse.json({ error: "Too many attempts. Wait 15 minutes and try again." }, { status: 429 });
   const user = await getUserByEmail(String(email).trim().toLowerCase()) || await getUserByEmail(String(email).trim());
   const valid = user && await bcrypt.compare(password, user.password_hash);
   if (!valid) return NextResponse.json({ error: "Invalid email or password." }, { status: 401 });
@@ -35,6 +38,7 @@ export async function PUT(req) {
   const { email, password, code, remember } = await req.json().catch(() => ({}));
   if (!email || !password || !code) return NextResponse.json({ error: "Code required" }, { status: 400 });
   await initDb();
+  if (!(await withinRateLimit(`code:${String(email).trim().toLowerCase()}`, 10, 15))) return NextResponse.json({ error: "Too many attempts. Wait 15 minutes and try again." }, { status: 429 });
   const user = await getUserByEmail(String(email).trim().toLowerCase()) || await getUserByEmail(String(email).trim());
   const valid = user && await bcrypt.compare(password, user.password_hash);
   if (!valid) return NextResponse.json({ error: "Invalid email or password." }, { status: 401 });
