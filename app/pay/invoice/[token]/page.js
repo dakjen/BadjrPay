@@ -1,5 +1,5 @@
 import { initDb } from "@/lib/db";
-import { getInvoiceByPayToken, getCompanySettings } from "@/lib/billing-db";
+import { getInvoiceByPayToken, getCompanySettings, listAttachments } from "@/lib/billing-db";
 import { getStripe, isStripeConfigured } from "@/lib/stripe";
 import { handleInvoiceCheckout, invoicePaymentOptions } from "@/lib/billing";
 
@@ -61,6 +61,7 @@ export default async function InvoicePayPage({ params, searchParams }) {
   }
 
   const { invoice, payments } = data;
+  const docs = await listAttachments(invoice.id);
   const balance = Math.round(((invoice.total || 0) - (invoice.amountPaid || 0)) * 100) / 100;
   const options = invoicePaymentOptions(invoice);
   const processing = payments.filter(p => p.status === "processing");
@@ -86,6 +87,10 @@ export default async function InvoicePayPage({ params, searchParams }) {
       {processing.length > 0 && <Row label="Bank payment clearing" value={fmt(processing.reduce((s, p) => s + p.amount, 0))} muted />}
     </div>
 
+    {docs.length > 0 && <div style={{ margin: "0 0 20px" }}>
+      <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: c.textMuted, marginBottom: 6 }}>Documents</div>
+      {docs.map(d => <a key={d.id} href={d.url} target="_blank" rel="noreferrer" style={{ display: "block", padding: "8px 0", borderBottom: `1px solid ${c.borderLight}`, fontSize: 14, color: c.accent, textDecoration: "none", fontWeight: 500 }}>{d.filename} ↗</a>)}
+    </div>}
     {balance > 0 && configured && options.length > 0 && <form method="POST" action={`/api/pay/invoice/${token}`} style={{ display: "flex", flexDirection: "column", gap: 8 }}>
       {options.map((o, i) => <button key={o.kind} type="submit" name="kind" value={o.kind} style={{ width: "100%", padding: "13px 18px", border: i === 0 ? "none" : `1px solid ${c.border}`, borderRadius: 8, background: i === 0 ? c.accent : c.surface, color: i === 0 ? "#fff" : c.text, fontFamily: sans, fontSize: 15, fontWeight: 600, cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <span>{i === 0 ? "Pay " : ""}{o.label.toLowerCase().startsWith("installment") ? o.label : o.label.toLowerCase()}</span><span>{fmt(o.amount)}</span>

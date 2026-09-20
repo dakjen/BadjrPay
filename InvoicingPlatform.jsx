@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useSession, signOut } from "next-auth/react";
 import { drawInvoicePDF, invoicePdfFilename } from "./lib/invoice-pdf";
+import { upload as blobUpload } from "@vercel/blob/client";
 import { BookkeepingShell } from "./BookkeepingModule";
 import { BillingShell } from "./BillingModule";
 
@@ -573,10 +574,12 @@ export default function InvoicingPlatform() {
         subject: `Invoice #${inv.number} from ${senderName}`,
         htmlBody: buildInvoiceEmailHTML(inv, data.settings, payUrl),
         pdfBase64, filename,
+        attachmentIds: (inv.attachments || []).map(a => a.id),
       });
       if (result.success) {
         updateInvoiceStatus(inv.id, "sent");
-        showToast(`Invoice emailed to ${inv.clientEmail}`);
+        const n = (inv.attachments || []).length;
+        showToast(`Invoice emailed to ${inv.clientEmail}${n ? ` with ${n} attachment${n === 1 ? "" : "s"}` : ""}`);
       } else showToast(`Email failed (${result.sgStatus}): ${result.error || "check SENDER_EMAIL env var"}`, "error");
     } catch (e) { showToast(`Email error: ${e.message}`, "error"); }
   };
@@ -623,7 +626,7 @@ export default function InvoicingPlatform() {
       <main style={{ flex: 1, padding: isMobile ? "16px 14px" : "24px 28px", paddingBottom: isMobile ? 80 : undefined, maxWidth: isMobile ? "100%" : 1400, width: "100%", overflowY: "auto" }}>
         {page === "dashboard" && <DashboardView {...{ data, totalRevenue, outstanding, overdueCount, draftCount, setPage, setModal, updateInvoiceStatus, handleDownloadPDF, handleSendEmail }} />}
         {page === "invoices" && !viewInvoice && <InvoicesView {...{ data, setModal, setEditItem, setViewInvoice, deleteInvoice, updateInvoiceStatus, handleCopyPayLink, handleDownloadPDF, handleSendEmail, handleSendOverdue, createRenewal }} />}
-        {page === "invoices" && viewInvoice && <InvoiceDetailView invoice={data.invoices.find(i => i.id === viewInvoice.id) || viewInvoice} data={data} onBack={() => setViewInvoice(null)} updateStatus={updateInvoiceStatus} markPartial={markPartialPayment} markInstallmentPaid={markInstallmentPaid} handleCopyPayLink={handleCopyPayLink} handleDownloadPDF={handleDownloadPDF} handleSendEmail={handleSendEmail} handleSendOverdue={handleSendOverdue} showToast={showToast} />}
+        {page === "invoices" && viewInvoice && <InvoiceDetailView invoice={data.invoices.find(i => i.id === viewInvoice.id) || viewInvoice} data={data} onBack={() => setViewInvoice(null)} updateStatus={updateInvoiceStatus} markPartial={markPartialPayment} markInstallmentPaid={markInstallmentPaid} handleCopyPayLink={handleCopyPayLink} handleDownloadPDF={handleDownloadPDF} handleSendEmail={handleSendEmail} handleSendOverdue={handleSendOverdue} showToast={showToast} setAttachments={(id, list) => setData(d => ({ ...d, invoices: d.invoices.map(i => i.id === id ? { ...i, attachments: list } : i) }))} canEdit={session?.user?.role !== "accountant"} />}
         {page === "clients" && <ClientsView {...{ data, setModal, setEditItem, deleteClient }} />}
         {page === "projects" && <ProjectsView {...{ data, setModal, setEditItem, deleteProject, saveProject }} />}
         {page === "services" && <ServicesView {...{ data, setModal, setEditItem, deleteService }} />}
@@ -760,7 +763,48 @@ function InvoicesView({ data, setModal, setEditItem, setViewInvoice, deleteInvoi
   </div>;
 }
 
-function InvoiceDetailView({ invoice: inv, data, onBack, updateStatus, markPartial, markInstallmentPaid, handleCopyPayLink, handleDownloadPDF, handleSendEmail, handleSendOverdue, showToast }) {
+const fmtBytes = (n) => n >= 1048576 ? `${(n / 1048576).toFixed(1)} MB` : n >= 1024 ? `${Math.round(n / 1024)} KB` : `${n || 0} B`;
+function AttachmentsPanel({ invoice, onChange, showToast, canEdit }) {
+  const [busy, setBusy] = useState(false);
+  const inputRef = useRef(null);
+  const files = invoice.attachments || [];
+  const pick = () => inputRef.current?.click();
+  const onFiles = async (e) => {
+    const list = Array.from(e.target.files || []);
+    e.target.value = "";
+    if (!list.length) return;
+    setBusy(true);
+    for (const f of list) {
+      try {
+        const blob = await blobUpload(`invoices/${invoice.number || invoice.id}/${f.name}`, f, { access: "public", handleUploadUrl: "/api/attachments/upload" });
+        const r = await fetch("/api/attachments", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ invoiceId: invoice.id, filename: f.name, url: blob.url, size: f.size, contentType: f.type }) });
+        const body = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(body.error || "Couldn't save the file");
+        onChange([...(invoice.attachments || []), body.attachment]);
+        showToast(`Attached ${f.name}`);
+      } catch (err) { showToast(`${f.name}: ${err.message}`, "error"); }
+    }
+    setBusy(false);
+  };
+  const remove = async (a) => {
+    if (!confirm(`Remove ${a.filename}?`)) return;
+    const r = await fetch("/api/attachments", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: a.id }) });
+    if (r.ok) { onChange(files.filter(x => x.id !== a.id)); showToast("Attachment removed"); } else showToast("Couldn't remove the attachment", "error");
+  };
+  return <div style={{ paddingTop: 16, borderTop: `1px solid ${theme.borderLight}`, marginBottom: 16 }}>
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+      <div style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em", color: theme.textMuted }}>Attachments <span style={{ fontWeight: 400, textTransform: "none", letterSpacing: 0 }}>· contracts, proposals — sent with the invoice email</span></div>
+      {canEdit && <><input ref={inputRef} type="file" multiple accept=".pdf,.png,.jpg,.jpeg,.webp,.doc,.docx,.xls,.xlsx,.txt" style={{ display: "none" }} onChange={onFiles} /><Btn size="sm" variant="secondary" icon={busy ? <span className="spin" style={{ display: "inline-flex" }}>{Icons.spinner}</span> : Icons.plus} disabled={busy} onClick={pick}>{busy ? "Uploading…" : "Attach file"}</Btn></>}
+    </div>
+    {files.length === 0 ? <div style={{ fontSize: 13, color: theme.textMuted }}>No files attached.</div> :
+      <div style={{ display: "grid", gap: 6 }}>{files.map(a => <div key={a.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 12px", background: theme.surfaceAlt, borderRadius: theme.radiusSm, fontSize: 13 }}>
+        <a href={a.url} target="_blank" rel="noreferrer" style={{ color: theme.accent, fontWeight: 500, textDecoration: "none", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.filename}</a>
+        <span style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 11, color: theme.textMuted, flexShrink: 0 }}>{fmtBytes(a.size)}{canEdit && <button onClick={() => remove(a)} style={{ background: "none", border: "none", cursor: "pointer", color: theme.danger, padding: 0, display: "inline-flex" }} title="Remove">{Icons.trash}</button>}</span>
+      </div>)}</div>}
+  </div>;
+}
+
+function InvoiceDetailView({ invoice: inv, data, onBack, updateStatus, markPartial, markInstallmentPaid, handleCopyPayLink, handleDownloadPDF, handleSendEmail, handleSendOverdue, showToast, setAttachments, canEdit }) {
   const [payAmount, setPayAmount] = useState("");
   const [sending, setSending] = useState(false);
   const [sendingReminder, setSendingReminder] = useState(false);
@@ -831,6 +875,8 @@ function InvoiceDetailView({ invoice: inv, data, onBack, updateStatus, markParti
       </div>
 
       {inv.notes && <div style={{ padding: "14px 16px", background: theme.surfaceAlt, borderRadius: theme.radiusSm, fontSize: 13, color: theme.textSecondary, marginBottom: 20 }}><span style={{ fontWeight: 600, fontSize: 11, textTransform: "uppercase", letterSpacing: "0.05em", display: "block", marginBottom: 4 }}>Notes</span>{inv.notes}</div>}
+
+      <AttachmentsPanel invoice={inv} onChange={(list) => setAttachments(inv.id, list)} showToast={showToast} canEdit={canEdit} />
 
       {(inv.onlinePayments || []).length > 0 && (
         <div style={{ paddingTop: 16, borderTop: `1px solid ${theme.borderLight}`, marginBottom: 16 }}>
