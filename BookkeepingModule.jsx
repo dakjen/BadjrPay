@@ -1590,11 +1590,10 @@ function BalanceSheetView({ filterYear, showToast, data, act, companyName }) {
   if (loading) return <div style={{ textAlign: "center", padding: 40, color: theme.textMuted }}>Loading...</div>;
   if (!bsData) return <Empty message="No balance sheet data available." />;
 
-  const { accountBalances, unassignedBalance, accountsReceivable, invoiceRevenue = 0, totalExpenses = 0, ownerInvestments = 0, ownerContributions = 0, ownerDraws = 0, retainedEarnings } = bsData;
+  const { accountBalances, unassignedBalance, invoiceRevenue = 0, otherIncome = 0, totalExpenses = 0, ownerInvestments = 0, ownerContributions = 0, ownerDraws = 0, retainedEarnings } = bsData;
 
   const totalCash = accountBalances.reduce((s, a) => s + a.balance, 0) + unassignedBalance;
-  const totalAR = accountsReceivable.reduce((s, r) => s + r.outstanding, 0);
-  const totalAssets = totalCash + totalAR;
+  const totalAssets = totalCash; // cash basis: unpaid invoices are not assets
   const totalLiabilities = 0;
   const totalEquity = retainedEarnings + ownerInvestments;
 
@@ -1629,7 +1628,7 @@ function BalanceSheetView({ filterYear, showToast, data, act, companyName }) {
     doc.setFont("helvetica", "bold"); doc.setFontSize(18);
     doc.text("Balance Sheet", margin, 18);
     doc.setFont("helvetica", "normal"); doc.setFontSize(10);
-    doc.text(`As of ${asOfLabel}`, margin, 28);
+    doc.text(`As of ${asOfLabel} · Cash basis`, margin, 28);
 
     y = 48;
     const D = [26, 26, 26], G = [107, 101, 96];
@@ -1666,9 +1665,6 @@ function BalanceSheetView({ filterYear, showToast, data, act, companyName }) {
       accountBalances.forEach(a => pdfRow(a.name, a.balance));
     }
     if (unassignedBalance !== 0) pdfRow("Unassigned Transactions", unassignedBalance);
-    if (accountsReceivable.length > 0) {
-      accountsReceivable.forEach(r => pdfRow(`${r.number} — ${r.clientName}${r.dueDate ? ` (due ${fmtDate(r.dueDate)})` : ""}`, r.outstanding));
-    }
     pdfTotal("Total Assets", totalAssets);
 
     // Liabilities
@@ -1703,7 +1699,6 @@ function BalanceSheetView({ filterYear, showToast, data, act, companyName }) {
       { Section: "Assets", Item: "Bank Accounts", Amount: "" },
       ...accountBalances.map(a => ({ Section: "Assets", Item: a.name, Amount: a.balance })),
       ...(unassignedBalance !== 0 ? [{ Section: "Assets", Item: "Unassigned Transactions", Amount: unassignedBalance }] : []),
-      ...accountsReceivable.map(r => ({ Section: "Assets", Item: `${r.number} — ${r.clientName}${r.dueDate ? ` (due ${r.dueDate})` : ""}`, Amount: r.outstanding })),
       { Section: "Assets", Item: "TOTAL ASSETS", Amount: totalAssets },
       { Section: "Liabilities", Item: "TOTAL LIABILITIES", Amount: 0 },
       { Section: "Equity", Item: "Owner's Contributions", Amount: ownerContributions },
@@ -1766,7 +1761,7 @@ function BalanceSheetView({ filterYear, showToast, data, act, companyName }) {
       <div style={{ textAlign: "center", marginBottom: 24 }}>
         <div style={{ fontSize: 22, fontWeight: 700, color: theme.text, fontFamily: "'Fraunces', serif" }}>{companyName || "My Company"}</div>
         <div style={{ fontSize: 15, fontWeight: 500, color: theme.text, marginTop: 4 }}>Balance Sheet</div>
-        <div style={{ fontSize: 13, color: theme.textSecondary, marginTop: 2 }}>As of {asOfLabel}</div>
+        <div style={{ fontSize: 13, color: theme.textSecondary, marginTop: 2 }}>As of {asOfLabel} · Cash basis</div>
       </div>
 
       {/* TOTAL column header */}
@@ -1783,11 +1778,6 @@ function BalanceSheetView({ filterYear, showToast, data, act, companyName }) {
         {qboTotal("Total for Bank Accounts", accountBalances.reduce((s, a) => s + a.balance, 0), 2)}
       </>}
       {unassignedBalance !== 0 && qboRow(accountBalances.length ? "Cash — not yet assigned to a bank account" : "Cash & bank (ledger)", unassignedBalance, 3)}
-      {accountsReceivable.length > 0 && <>
-        {qboRow("Accounts Receivable", null, 2)}
-        {accountsReceivable.map((r, i) => qboRow(`${r.number} — ${r.clientName}${r.dueDate ? ` · due ${fmtDate(r.dueDate)}` : ""}`, r.outstanding, 3))}
-        {qboTotal("Total for Accounts Receivable", totalAR, 2)}
-      </>}
       {qboTotal("Total for Current Assets", totalAssets, 1)}
       {qboTotal("Total for Assets", totalAssets, 0)}
 
@@ -1803,8 +1793,7 @@ function BalanceSheetView({ filterYear, showToast, data, act, companyName }) {
       {qboRow("Equity", null, 1)}
       {ownerContributions > 0 && qboRow("Owner's Contributions", ownerContributions, 2)}
       {ownerDraws > 0 && qboRow("Owner's Draws", -ownerDraws, 2)}
-      {invoiceRevenue > 0 && qboRow("Retained Earnings", invoiceRevenue - totalExpenses, 2)}
-      {qboRow("Net Income", retainedEarnings, 2)}
+      {qboRow("Net Income (retained earnings to date)", retainedEarnings, 2)}
       {qboTotal("Total for Equity", totalEquity, 1)}
 
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", padding: "5px 0", borderTop: `2px solid ${theme.text}`, borderBottom: `2px solid ${theme.text}`, marginTop: 8 }}>
