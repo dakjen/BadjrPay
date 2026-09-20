@@ -9,6 +9,7 @@ import {
 } from "@/lib/billing-db";
 import { syncFromStripe, cancelStripeSubscription, resumeStripeSubscription, createPortalSession, getRevenueDashboard, ensureStripeCustomer, setupWebhook, webhookStatus } from "@/lib/billing";
 import { sendMail } from "@/lib/email";
+import { sendReceipt, runDaily } from "@/lib/notify";
 import { buildSubscriptionEmailHTML } from "@/lib/billing-email";
 
 const VALID_INTERVALS = { month: [1, 3, 6], year: [1], week: [1] };
@@ -122,6 +123,15 @@ export async function POST(req) {
         if (role !== "owner") return NextResponse.json({ error: "Owners only" }, { status: 403 });
         const result = await setupWebhook(baseUrl);
         return NextResponse.json({ ok: true, ...result });
+      }
+      case "send_receipt": {
+        if (!data.invoiceId) return NextResponse.json({ error: "invoiceId required" }, { status: 400 });
+        await sendReceipt({ invoiceId: data.invoiceId, amount: parseFloat(data.amount) || 0, method: data.method || "", baseUrl });
+        return NextResponse.json({ ok: true });
+      }
+      case "run_daily": {
+        if (role !== "owner") return NextResponse.json({ error: "Owners only" }, { status: 403 });
+        return NextResponse.json({ ok: true, ...(await runDaily(baseUrl, { dryRun: !!data.dryRun })) });
       }
       case "sync": {
         if (!isStripeConfigured()) return NextResponse.json({ error: "Stripe is not configured" }, { status: 400 });

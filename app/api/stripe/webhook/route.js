@@ -3,6 +3,7 @@ import { initDb } from "@/lib/db";
 import { getStripe, invoiceSubscriptionId } from "@/lib/stripe";
 import { hasProcessedEvent, markEventProcessed, getSubscriptionByStripeId, syncSubscriptionState, getIntegrationSetting } from "@/lib/billing-db";
 import { handleCheckoutCompleted, handleInvoiceCheckout, applyStripeSubscription, recordPaidInvoice } from "@/lib/billing";
+import { sendPlanFailed } from "@/lib/notify";
 
 // Stripe → us. Public route (excluded from auth in middleware); verified by signature instead.
 export async function POST(req) {
@@ -44,7 +45,10 @@ export async function POST(req) {
       case "invoice.payment_failed": {
         const sid = invoiceSubscriptionId(obj);
         const local = sid ? await getSubscriptionByStripeId(sid) : null;
-        if (local) await syncSubscriptionState(local.id, { status: "past_due" });
+        if (local) {
+          await syncSubscriptionState(local.id, { status: "past_due" });
+          if (obj.attempt_count === 1) await sendPlanFailed(local, null, process.env.APP_URL).catch(e => console.error("[notify]", e.message));
+        }
         break;
       }
       default:

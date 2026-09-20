@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { useSession, signOut } from "next-auth/react";
-import { jsPDF } from "jspdf";
+import { drawInvoicePDF, invoicePdfFilename } from "./lib/invoice-pdf";
 import { BookkeepingShell } from "./BookkeepingModule";
 import { BillingShell } from "./BillingModule";
 
@@ -57,7 +57,7 @@ const defaultData = {
   clients: [],
   categories: [],
   services: [], projects: [], invoices: [],
-  settings: { companyName: "", companyAddress: "", companyPhone: "", taxState: "MD", taxLocalRate: 3.2, taxFiling: "single" },
+  settings: { companyName: "", companyAddress: "", companyPhone: "", taxState: "MD", taxLocalRate: 3.2, taxFiling: "single", autoReminders: true },
 };
 
 // ═══════════════════════════════════════
@@ -141,145 +141,11 @@ function Toast({ message, type = "success", onClose }) {
 // PDF GENERATION
 // ═══════════════════════════════════════
 async function generateInvoicePDF(invoice, settings, client) {
-  const doc = new jsPDF();
-  const W = 210, margin = 20, cW = W - margin * 2;
-  let y = 20;
-  const A = [45, 90, 61], D = [26, 26, 26], G = [107, 101, 96], L = [237, 233, 225];
-
-  // Header bar
-  doc.setFillColor(...A);
-  doc.rect(0, 0, W, 44, "F");
-  doc.setTextColor(255, 255, 255);
-  doc.setFont("helvetica", "bold"); doc.setFontSize(22);
-  doc.text(settings.companyName || "INVOICE", margin, 20);
-  doc.setFont("helvetica", "normal"); doc.setFontSize(9);
-  if (settings.companyAddress) doc.text(settings.companyAddress, margin, 28);
-  if (settings.companyPhone) doc.text(settings.companyPhone, margin, 34);
-  doc.setFont("helvetica", "bold"); doc.setFontSize(12);
-  doc.text(invoice.number || "INV-0001", W - margin, 20, { align: "right" });
-  doc.setFont("helvetica", "normal"); doc.setFontSize(9);
-  doc.text(`Issued: ${invoice.createdAt ? fmtDate(invoice.createdAt) : "-"}`, W - margin, 28, { align: "right" });
-  doc.text(`Due: ${invoice.dueDate ? fmtDate(invoice.dueDate) : "-"}`, W - margin, 34, { align: "right" });
-  if (invoice.status === "paid") doc.text(`Paid: ${invoice.paidAt ? fmtDate(invoice.paidAt) : "Yes"}`, W - margin, 40, { align: "right" });
-
-  y = 58;
-  doc.setTextColor(...G); doc.setFontSize(8); doc.setFont("helvetica", "bold");
-  doc.text("BILL TO", margin, y); y += 6;
-  doc.setTextColor(...D); doc.setFontSize(12); doc.setFont("helvetica", "bold");
-  doc.text(invoice.clientName || "-", margin, y); y += 6;
-  doc.setFont("helvetica", "normal"); doc.setFontSize(9); doc.setTextColor(...G);
-  if (client?.email) { doc.text(client.email, margin, y); y += 4.5; }
-  if (client?.phone) { doc.text(client.phone, margin, y); y += 4.5; }
-  if (client?.address) { client.address.split("\n").forEach(l => { doc.text(l.trim(), margin, y); y += 4.5; }); }
-
-  y += 8;
-  // Table header
-  doc.setFillColor(...L); doc.rect(margin, y, cW, 8, "F");
-  doc.setTextColor(...G); doc.setFontSize(7); doc.setFont("helvetica", "bold");
-  doc.text("DESCRIPTION", margin + 3, y + 5.5);
-  doc.text("QTY", margin + cW * 0.58, y + 5.5);
-  doc.text("RATE", margin + cW * 0.72, y + 5.5);
-  doc.text("AMOUNT", margin + cW - 3, y + 5.5, { align: "right" });
-  y += 12;
-
-  // Line items
-  doc.setTextColor(...D); doc.setFontSize(9.5); doc.setFont("helvetica", "normal");
-  (invoice.items || []).forEach(li => {
-    if (y > 260) { doc.addPage(); y = 20; }
-    const t = (parseFloat(li.qty) || 0) * (parseFloat(li.rate) || 0);
-    const desc = doc.splitTextToSize(li.description || "", cW * 0.54);
-    doc.text(desc, margin + 3, y);
-    doc.text(String(li.qty || 0), margin + cW * 0.58, y);
-    doc.text(fmt(li.rate || 0), margin + cW * 0.72, y);
-    doc.setFont("helvetica", "bold");
-    doc.text(fmt(t), margin + cW - 3, y, { align: "right" });
-    doc.setFont("helvetica", "normal");
-    // Separator sits just under this row's last text line (baseline + descender), never through the next row
-    const bottom = y + (desc.length - 1) * 4.5 + 2.8;
-    doc.setDrawColor(...L); doc.line(margin, bottom, margin + cW, bottom);
-    y += Math.max(desc.length * 4.5, 7) + 1.5;
-  });
-
-  y += 8;
-  const tX = margin + cW * 0.58;
-  const deposit = parseFloat(invoice.deposit || 0);
-  const remaining = (invoice.total || 0) - (invoice.amountPaid || 0);
-  doc.setTextColor(...G); doc.setFontSize(9.5);
-  doc.text("Subtotal", tX, y);
-  doc.setTextColor(...D); doc.text(fmt(invoice.total || 0), margin + cW - 3, y, { align: "right" });
-  y += 6;
-  if (deposit > 0) {
-    doc.setTextColor(...G);
-    doc.text("Deposit (due on receipt)", tX, y);
-    doc.setTextColor(...D); doc.text(`+${fmt(deposit)}`, margin + cW - 3, y, { align: "right" });
-    y += 6;
-  }
-  if ((invoice.amountPaid || 0) > 0) {
-    doc.setTextColor(45, 122, 79);
-    doc.text("Amount Paid", tX, y);
-    doc.text(`-${fmt(invoice.amountPaid)}`, margin + cW - 3, y, { align: "right" });
-    y += 6;
-  }
-  doc.setDrawColor(...D); doc.setLineWidth(0.5); doc.line(tX, y - 1, margin + cW, y - 1);
-  y += 5;
-  doc.setTextColor(...D); doc.setFont("helvetica", "bold"); doc.setFontSize(13);
-  doc.text("TOTAL DUE", tX, y);
-  doc.text(fmt(remaining), margin + cW - 3, y, { align: "right" });
-  y += 14;
-
-  // Payment terms
-  const hasInstallments = (invoice.installments || []).length > 0;
-  const paymentTermsLines = [];
-  if (deposit > 0) {
-    paymentTermsLines.push(`A deposit of ${fmt(deposit)} is due upon receipt.`);
-  }
-  if (hasInstallments) {
-    const pendingInst = (invoice.installments || []).filter(i => i.status !== "paid");
-    if (pendingInst.length > 0) {
-      paymentTermsLines.push(`Invoice total of ${fmt(invoice.total || 0)} is payable in ${(invoice.installments || []).length} installments.`);
-    }
-  } else if (invoice.dueDate) {
-    paymentTermsLines.push(`Invoice total of ${fmt(invoice.total || 0)} is due by ${fmtDate(invoice.dueDate)}.`);
-  }
-  if (paymentTermsLines.length > 0) {
-    doc.setFillColor(240, 248, 243);
-    const termsH = 10 + paymentTermsLines.length * 5.5;
-    doc.roundedRect(margin, y, cW, termsH, 2, 2, "F");
-    doc.setTextColor(45, 90, 61); doc.setFont("helvetica", "bold"); doc.setFontSize(7);
-    doc.text("PAYMENT TERMS", margin + 4, y + 5);
-    doc.setFont("helvetica", "normal"); doc.setFontSize(8.5); doc.setTextColor(...D);
-    paymentTermsLines.forEach((line, idx) => { doc.text(line, margin + 4, y + 11 + idx * 5.5); });
-    y += termsH + 6;
-  }
-
-  if (invoice.notes) {
-    doc.setFillColor(247, 245, 240);
-    const noteLines = doc.splitTextToSize(invoice.notes, cW - 8);
-    const boxH = 14 + noteLines.length * 4;
-    doc.roundedRect(margin, y, cW, boxH, 2, 2, "F");
-    doc.setTextColor(...G); doc.setFont("helvetica", "bold"); doc.setFontSize(7);
-    doc.text("NOTES", margin + 4, y + 5);
-    doc.setFont("helvetica", "normal"); doc.setFontSize(8.5); doc.setTextColor(...D);
-    doc.text(noteLines, margin + 4, y + 11);
-  }
-
-  // Paid stamp
-  if (invoice.status === "paid") {
-    doc.saveGraphicsState();
-    doc.setGState(new doc.GState({ opacity: 0.15 }));
-    doc.setTextColor(45, 122, 79); doc.setFontSize(48); doc.setFont("helvetica", "bold");
-    doc.text("PAID", W / 2, 150, { align: "center", angle: 25 });
-    doc.restoreGraphicsState();
-  }
-
-  // Footer
-  doc.setTextColor(...G); doc.setFontSize(7.5); doc.setFont("helvetica", "normal");
-  doc.text("Thank you for your business.", W / 2, 282, { align: "center" });
-
+  const doc = drawInvoicePDF(invoice, settings, client);
   const pdfBase64 = doc.output("datauristring").split(",")[1];
   const pdfBlob = doc.output("blob");
   const pdfUrl = URL.createObjectURL(pdfBlob);
-  return { pdfBase64, pdfBlob, pdfUrl, filename: `${(invoice.number || "invoice").replace(/\s/g, "_")}.pdf` };
+  return { pdfBase64, pdfBlob, pdfUrl, filename: invoicePdfFilename(invoice) };
 }
 
 // ═══════════════════════════════════════
@@ -757,7 +623,7 @@ export default function InvoicingPlatform() {
       <main style={{ flex: 1, padding: isMobile ? "16px 14px" : "24px 28px", paddingBottom: isMobile ? 80 : undefined, maxWidth: isMobile ? "100%" : 1400, width: "100%", overflowY: "auto" }}>
         {page === "dashboard" && <DashboardView {...{ data, totalRevenue, outstanding, overdueCount, draftCount, setPage, setModal, updateInvoiceStatus, handleDownloadPDF, handleSendEmail }} />}
         {page === "invoices" && !viewInvoice && <InvoicesView {...{ data, setModal, setEditItem, setViewInvoice, deleteInvoice, updateInvoiceStatus, handleCopyPayLink, handleDownloadPDF, handleSendEmail, handleSendOverdue, createRenewal }} />}
-        {page === "invoices" && viewInvoice && <InvoiceDetailView invoice={data.invoices.find(i => i.id === viewInvoice.id) || viewInvoice} data={data} onBack={() => setViewInvoice(null)} updateStatus={updateInvoiceStatus} markPartial={markPartialPayment} markInstallmentPaid={markInstallmentPaid} handleCopyPayLink={handleCopyPayLink} handleDownloadPDF={handleDownloadPDF} handleSendEmail={handleSendEmail} handleSendOverdue={handleSendOverdue} />}
+        {page === "invoices" && viewInvoice && <InvoiceDetailView invoice={data.invoices.find(i => i.id === viewInvoice.id) || viewInvoice} data={data} onBack={() => setViewInvoice(null)} updateStatus={updateInvoiceStatus} markPartial={markPartialPayment} markInstallmentPaid={markInstallmentPaid} handleCopyPayLink={handleCopyPayLink} handleDownloadPDF={handleDownloadPDF} handleSendEmail={handleSendEmail} handleSendOverdue={handleSendOverdue} showToast={showToast} />}
         {page === "clients" && <ClientsView {...{ data, setModal, setEditItem, deleteClient }} />}
         {page === "projects" && <ProjectsView {...{ data, setModal, setEditItem, deleteProject, saveProject }} />}
         {page === "services" && <ServicesView {...{ data, setModal, setEditItem, deleteService }} />}
@@ -894,7 +760,7 @@ function InvoicesView({ data, setModal, setEditItem, setViewInvoice, deleteInvoi
   </div>;
 }
 
-function InvoiceDetailView({ invoice: inv, data, onBack, updateStatus, markPartial, markInstallmentPaid, handleCopyPayLink, handleDownloadPDF, handleSendEmail, handleSendOverdue }) {
+function InvoiceDetailView({ invoice: inv, data, onBack, updateStatus, markPartial, markInstallmentPaid, handleCopyPayLink, handleDownloadPDF, handleSendEmail, handleSendOverdue, showToast }) {
   const [payAmount, setPayAmount] = useState("");
   const [sending, setSending] = useState(false);
   const [sendingReminder, setSendingReminder] = useState(false);
@@ -913,6 +779,7 @@ function InvoiceDetailView({ invoice: inv, data, onBack, updateStatus, markParti
       <Btn variant="blue" icon={sending ? <span className="spin" style={{ display: "inline-flex" }}>{Icons.spinner}</span> : Icons.mail} onClick={onSend} disabled={sending}>{sending ? "Sending..." : "Send"}</Btn>
       {inv.status === "overdue" && <Btn variant="danger" icon={sendingReminder ? <span className="spin" style={{ display: "inline-flex" }}>{Icons.spinner}</span> : Icons.mail} onClick={onSendReminder} disabled={sendingReminder}>{sendingReminder ? "Sending..." : "Send Overdue Reminder"}</Btn>}
       {inv.status !== "paid" && <Btn variant="secondary" icon={Icons.link} onClick={() => handleCopyPayLink(inv)}>Payment Link</Btn>}
+      {(inv.amountPaid || 0) > 0 && inv.clientEmail && <Btn variant="secondary" icon={Icons.mail} onClick={async () => { const amt = inv.status === "paid" ? inv.total : (inv.amountPaid || 0); if (!confirm(`Email ${inv.clientName} a receipt for ${fmt(amt)}?`)) return; const r = await fetch("/api/billing", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "send_receipt", data: { invoiceId: inv.id, amount: amt } }) }); showToast(r.ok ? `Receipt emailed to ${inv.clientEmail}` : "Couldn't send the receipt", r.ok ? "success" : "error"); }}>Send Receipt</Btn>}
       {inv.status !== "paid" && <Btn variant="success" icon={Icons.check} onClick={() => { if (confirm(`Mark ${inv.number} as paid in full (${fmt(inv.total || 0)})?`)) updateStatus(inv.id, "paid"); }}>Paid</Btn>}
     </div>
 
@@ -1394,6 +1261,14 @@ function UsersView() {
 function SettingsView({ settings, onSave }) {
   const [form, setForm] = useState({ ...settings });
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
+  const [daily, setDaily] = useState(null);
+  const [dailyBusy, setDailyBusy] = useState(false);
+  const runDaily = async (dryRun) => {
+    if (!dryRun && !confirm("Send today's reminders, renewals and digest now? Clients with overdue or due-soon invoices will be emailed.")) return;
+    setDailyBusy(true);
+    try { const r = await fetch("/api/billing", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "run_daily", data: { dryRun } }) }); setDaily(await r.json()); }
+    catch (e) { setDaily({ error: e.message }); } finally { setDailyBusy(false); }
+  };
   return <div>
     <h1 style={{ margin: "0 0 20px", fontFamily: "'Fraunces', serif", fontSize: 24, fontWeight: 700 }}>Settings</h1>
 
@@ -1420,6 +1295,26 @@ function SettingsView({ settings, onSave }) {
     </div>
 
 <div style={{ display: "flex", justifyContent: "flex-end" }}><Btn onClick={() => onSave(form)}>Save Settings</Btn></div>
+
+    <div style={{ background: theme.surface, borderRadius: theme.radius, border: `1px solid ${theme.borderLight}`, padding: "20px 24px", marginTop: 16 }}>
+      <h3 style={{ margin: "0 0 4px", fontFamily: "'Fraunces', serif", fontSize: 16, fontWeight: 600 }}>Automatic Emails</h3>
+      <p style={{ fontSize: 12, color: theme.textMuted, margin: "0 0 14px", lineHeight: 1.6 }}>Every morning (9am ET) the app emails clients about invoices due in 3 days, due today, and overdue at 7 / 14 / 30 days; reminds payment-plan installments 3 days ahead; re-issues recurring invoices 15 days before renewal; and sends owners a Monday digest. Each email goes out once. Receipts, plan activations and failed-payment notices send instantly.</p>
+      <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, marginBottom: 14, cursor: "pointer" }}>
+        <input type="checkbox" checked={form.autoReminders !== false} onChange={e => set("autoReminders", e.target.checked)} />
+        <span><b>Email clients automatically</b> (reminders, installment notices, renewals). Owner digest and overdue flags run regardless. Save Settings to apply.</span>
+      </label>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+        <Btn variant="secondary" size="sm" disabled={dailyBusy} onClick={() => runDaily(true)}>{dailyBusy ? "Checking…" : "Preview today's run"}</Btn>
+        <Btn variant="primary" size="sm" disabled={dailyBusy} onClick={() => runDaily(false)}>Run now</Btn>
+      </div>
+      {daily && <div style={{ marginTop: 12, fontSize: 13, background: theme.surfaceAlt, borderRadius: theme.radiusSm, padding: "10px 14px" }}>
+        {daily.error ? <span style={{ color: theme.danger }}>{daily.error}</span> : <>
+          <div style={{ fontWeight: 600, marginBottom: 6 }}>{daily.dryRun ? "Would send today:" : "Sent:"} {daily.reminders} reminder{daily.reminders === 1 ? "" : "s"}, {daily.installmentReminders} installment reminder{daily.installmentReminders === 1 ? "" : "s"}, {daily.renewalsIssued} renewal{daily.renewalsIssued === 1 ? "" : "s"}{daily.digest ? ", Monday digest" : ""}{daily.markedOverdue ? ` · ${daily.markedOverdue} invoice${daily.markedOverdue === 1 ? "" : "s"} flagged overdue` : ""}</div>
+          {(daily.planned || []).length > 0 && <ul style={{ margin: 0, paddingLeft: 18, color: theme.textSecondary }}>{daily.planned.map((p, i) => <li key={i}>{p}</li>)}</ul>}
+          {daily.dryRun && daily.reminders + daily.installmentReminders + daily.renewalsIssued === 0 && !daily.digest && <div style={{ color: theme.textMuted }}>Nothing to send today.</div>}
+        </>}
+      </div>}
+    </div>
   </div>;
 }
 
