@@ -1,6 +1,7 @@
 "use client";
 import { useState, useEffect, useRef } from "react";
 import { estimateTaxes, nextQuarterlyDue } from "./lib/tax";
+import { readHash, writeHash } from "./lib/hash-state";
 import { jsPDF } from "jspdf";
 
 // ── Shared helpers (duplicated from InvoicingPlatform to avoid refactoring monolith) ──
@@ -144,12 +145,15 @@ export function periodRange(year, period) {
   return { start, end, asOf: cap(end), label, tag, period };
 }
 
+const BK_TABS = ["dashboard", "people", "ledger", "pnl", "balance_sheet", "reconcile", "accounts", "import"];
 export function BookkeepingShell({ session, showToast }) {
-  const [tab, setTab] = useState("dashboard");
+  const initial = readHash();
+  const [tab, setTab] = useState(BK_TABS.includes(initial.sub) ? initial.sub : "dashboard");
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [filterYear, setFilterYear] = useState(new Date().getFullYear());
-  const [period, setPeriod] = useState("year"); // year | ytd | q1..q4 | m1..m12
+  const [filterYear, setFilterYear] = useState(parseInt(initial.params.year) || new Date().getFullYear());
+  const [period, setPeriod] = useState(/^(year|ytd|q[1-4]|m\d{1,2})$/.test(initial.params.period || "") ? initial.params.period : "year"); // year | ytd | q1..q4 | m1..m12
+  useEffect(() => { writeHash("bookkeeping", tab, { year: filterYear, period: period === "year" ? "" : period }); }, [tab, filterYear, period]);
   const range = periodRange(filterYear, period);
 
   const role = session?.user?.role || "owner";

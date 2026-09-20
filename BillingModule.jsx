@@ -1,5 +1,6 @@
 "use client";
 import { useState, useEffect, useRef } from "react";
+import { readHash, writeHash } from "./lib/hash-state";
 
 // ═══════════════════════════════════════
 // BILLING MODULE — Stripe recurring plans + live revenue dashboard
@@ -132,7 +133,8 @@ async function copyText(text) {
 // SHELL
 // ═══════════════════════════════════════
 export function BillingShell({ session, showToast, clients = [] }) {
-  const [tab, setTab] = useState("revenue");
+  const [tab, setTab] = useState(readHash().sub === "plans" ? "subscriptions" : "revenue");
+  useEffect(() => { writeHash("billing", tab === "subscriptions" ? "plans" : ""); }, [tab]);
   const [rev, setRev] = useState(null);
   const [revLoading, setRevLoading] = useState(true);
   const [revError, setRevError] = useState(null);

@@ -1,5 +1,6 @@
 "use client";
 import { useState, useEffect, useRef } from "react";
+import { readHash, writeHash } from "./lib/hash-state";
 
 // ═══════════════════════════════════════
 // PRODUCTS — revenue by product line (Merge, custom builds, consulting…) across Stripe, invoices and the ledger
@@ -99,7 +100,8 @@ function StackedChart({ buckets, series }) {
 export function ProductsShell({ session, showToast }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [months, setMonths] = useState(12);
+  const [months, setMonths] = useState([3, 6, 12, 24].includes(parseInt(readHash().params.months)) ? parseInt(readHash().params.months) : 12);
+  useEffect(() => { writeHash("products", "", { months: months === 12 ? "" : months }); }, [months]);
   const [busy, setBusy] = useState(null);
   const [newLine, setNewLine] = useState({ name: "", category: "saas" });
   const canEdit = (session?.user?.role || "owner") !== "accountant";

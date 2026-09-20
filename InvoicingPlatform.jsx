@@ -5,6 +5,7 @@ import { upload as blobUpload } from "@vercel/blob/client";
 import { BookkeepingShell } from "./BookkeepingModule";
 import { BillingShell } from "./BillingModule";
 import { ProductsShell } from "./ProductsModule";
+import { readHash, writeHash } from "./lib/hash-state";
 
 function useIsMobile() {
   const [isMobile, setIsMobile] = useState(false);
@@ -427,11 +428,13 @@ export default function InvoicingPlatform() {
   useEffect(() => {
     loadFonts();
     const validPages = ["dashboard","invoices","billing","products","clients","projects","services","categories","reports","bookkeeping","users","settings"];
-    const fromHash = window.location.hash.replace("#", "");
-    if (validPages.includes(fromHash)) setPage(fromHash);
+    const initial = readHash();
+    if (validPages.includes(initial.page)) setPage(initial.page);
+    if (initial.page === "invoices" && initial.sub) setViewInvoice({ id: initial.sub });
     const onHash = () => {
-      const p = window.location.hash.replace("#", "");
-      if (validPages.includes(p)) setPage(p);
+      const h = readHash();
+      if (validPages.includes(h.page)) setPage(h.page);
+      if (h.page === "invoices") setViewInvoice(h.sub ? { id: h.sub } : null);
     };
     window.addEventListener("hashchange", onHash);
     const load = () => fetch("/api/data", { cache: "no-store" }).then(r => r.ok ? r.json() : null).then(saved => {
@@ -464,7 +467,8 @@ export default function InvoicingPlatform() {
 
   const update = (key, val) => setData(d => { const newData = { ...d, [key]: val }; persistData(newData); return newData; });
   const updateNow = (key, val) => setData(d => { const newData = { ...d, [key]: val }; persistNow(newData); return newData; });
-  const navigate = (p) => { setPage(p); setViewInvoice(null); window.location.hash = p; };
+  const navigate = (p) => { setPage(p); setViewInvoice(null); if (readHash().page !== p) window.location.hash = p; else writeHash(p); };
+  const openInvoice = (inv) => { setViewInvoice(inv); writeHash("invoices", inv?.id || ""); };
   const showToast = (message, type = "success") => setToast({ message, type });
 
   const totalRevenue = data.invoices.filter(i => i.status === "paid").reduce((s, i) => s + (i.total || 0), 0);
@@ -629,8 +633,9 @@ export default function InvoicingPlatform() {
       {/* Content */}
       <main style={{ flex: 1, padding: isMobile ? "16px 14px" : "24px 28px", paddingBottom: isMobile ? 80 : undefined, maxWidth: isMobile ? "100%" : 1400, width: "100%", overflowY: "auto" }}>
         {page === "dashboard" && <DashboardView {...{ data, totalRevenue, outstanding, overdueCount, draftCount, setPage, setModal, updateInvoiceStatus, handleDownloadPDF, handleSendEmail }} />}
-        {page === "invoices" && !viewInvoice && <InvoicesView {...{ data, setModal, setEditItem, setViewInvoice, deleteInvoice, updateInvoiceStatus, handleCopyPayLink, handleDownloadPDF, handleSendEmail, handleSendOverdue, createRenewal }} />}
-        {page === "invoices" && viewInvoice && <InvoiceDetailView invoice={data.invoices.find(i => i.id === viewInvoice.id) || viewInvoice} data={data} onBack={() => setViewInvoice(null)} updateStatus={updateInvoiceStatus} markPartial={markPartialPayment} markInstallmentPaid={markInstallmentPaid} handleCopyPayLink={handleCopyPayLink} handleDownloadPDF={handleDownloadPDF} handleSendEmail={handleSendEmail} handleSendOverdue={handleSendOverdue} showToast={showToast} setAttachments={(id, list) => setData(d => ({ ...d, invoices: d.invoices.map(i => i.id === id ? { ...i, attachments: list } : i) }))} canEdit={session?.user?.role !== "accountant"} />}
+        {page === "invoices" && !viewInvoice && <InvoicesView {...{ data, setModal, setEditItem, setViewInvoice: openInvoice, deleteInvoice, updateInvoiceStatus, handleCopyPayLink, handleDownloadPDF, handleSendEmail, handleSendOverdue, createRenewal }} />}
+        {page === "invoices" && viewInvoice && !data.invoices.find(i => i.id === viewInvoice.id) && (data.invoices.length ? <Empty icon={Icons.invoice} message="That invoice no longer exists" action={<Btn size="sm" variant="secondary" onClick={() => openInvoice(null)}>Back to invoices</Btn>} /> : <div style={{ color: theme.textMuted, padding: 40, textAlign: "center" }}>Loading…</div>)}
+        {page === "invoices" && viewInvoice && data.invoices.find(i => i.id === viewInvoice.id) && <InvoiceDetailView invoice={data.invoices.find(i => i.id === viewInvoice.id)} data={data} onBack={() => openInvoice(null)} updateStatus={updateInvoiceStatus} markPartial={markPartialPayment} markInstallmentPaid={markInstallmentPaid} handleCopyPayLink={handleCopyPayLink} handleDownloadPDF={handleDownloadPDF} handleSendEmail={handleSendEmail} handleSendOverdue={handleSendOverdue} showToast={showToast} setAttachments={(id, list) => setData(d => ({ ...d, invoices: d.invoices.map(i => i.id === id ? { ...i, attachments: list } : i) }))} canEdit={session?.user?.role !== "accountant"} />}
         {page === "clients" && <ClientsView {...{ data, setModal, setEditItem, deleteClient }} />}
         {page === "projects" && <ProjectsView {...{ data, setModal, setEditItem, deleteProject, saveProject }} />}
         {page === "services" && <ServicesView {...{ data, setModal, setEditItem, deleteService }} />}
