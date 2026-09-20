@@ -368,6 +368,7 @@ function LedgerView({ data, act, showToast, canInput, canEdit }) {
                 <div style={{ fontWeight: 500 }}>{t.name || t.description || "—"}</div>
                 {t.name && t.description && <div style={{ fontSize: 11, color: theme.textMuted }}>{t.description}</div>}
                 {t.vendor && <div style={{ fontSize: 11, color: theme.textMuted }}>Vendor: {t.vendor}</div>}
+                {t.invoiceId && <div style={{ fontSize: 11, color: theme.accent, fontWeight: 600, marginTop: 2 }}>→ Applied to {(data.invoices || []).find(i => i.id === t.invoiceId)?.number || "invoice"}</div>}
               </td>
               <td style={tdStyle}><span style={{ fontSize: 12, color: theme.textSecondary }}>{catMap[t.categoryId] || "—"}</span></td>
               <td style={{ ...tdStyle, textAlign: "right", fontWeight: 600, color: t.amount >= 0 ? theme.success : theme.danger }}>{t.amount >= 0 ? "+" : "-"}{fmt(Math.abs(t.amount))}</td>
@@ -386,7 +387,7 @@ function LedgerView({ data, act, showToast, canInput, canEdit }) {
       </div>}
 
     <Modal open={!!modal} onClose={() => setModal(null)} title={modal === "add" ? "Add Transaction" : "Edit Transaction"} width={560}>
-      <TransactionForm item={modal === "add" ? null : modal} categories={data.categories} accounts={data.accounts} onSave={handleSave} onCancel={() => setModal(null)} />
+      <TransactionForm item={modal === "add" ? null : modal} categories={data.categories} accounts={data.accounts} invoices={data.invoices || []} onSave={handleSave} onCancel={() => setModal(null)} />
     </Modal>
   </div>;
 }
@@ -395,7 +396,7 @@ const thStyle = { textAlign: "left", padding: "8px 10px", fontSize: 11, fontWeig
 const tdStyle = { padding: "10px 10px", verticalAlign: "top" };
 
 // ── Transaction Form ──
-function TransactionForm({ item, categories, accounts, onSave, onCancel }) {
+function TransactionForm({ item, categories, accounts, invoices = [], onSave, onCancel }) {
   const [form, setForm] = useState({
     date: today(), description: "", name: "", amount: "", categoryId: "", accountId: "",
     type: "expense", vendor: "", reference: "", notes: "",
@@ -410,7 +411,7 @@ function TransactionForm({ item, categories, accounts, onSave, onCancel }) {
   const handleSubmit = () => {
     if (!form.date || !form.amount) return;
     const amt = parseFloat(form.amount) || 0;
-    onSave({ ...form, type: storedType(form.type), amount: isNegative(form.type) ? -Math.abs(amt) : Math.abs(amt) });
+    onSave({ ...form, type: storedType(form.type), amount: isNegative(form.type) ? -Math.abs(amt) : Math.abs(amt), invoiceId: form.type === "income" ? (form.invoiceId || null) : null });
   };
 
   return <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
@@ -423,6 +424,16 @@ function TransactionForm({ item, categories, accounts, onSave, onCancel }) {
         <option value="draw">Owner draw (money out, not an expense)</option>
       </Select>
     </div>
+    {form.type === "income" && (() => {
+      const open = invoices.filter(i => i.id === form.invoiceId || ((i.total || 0) - (i.amountPaid || 0) > 0.005 && i.status !== "draft"));
+      return <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+        <Select label="Apply to invoice" value={form.invoiceId || ""} onChange={e => set("invoiceId", e.target.value || null)}>
+          <option value="">— Not an invoice payment —</option>
+          {open.map(i => <option key={i.id} value={i.id}>{i.number} · {i.clientName || "—"} · {fmt((i.total || 0) - (i.amountPaid || 0))} due</option>)}
+        </Select>
+        <div style={{ fontSize: 11, color: theme.textMuted }}>Applying a deposit settles that invoice (paid / partial) and keeps it out of P&L income, since the invoice already carries the revenue.</div>
+      </div>;
+    })()}
     <Input label="Name" value={form.name} onChange={e => set("name", e.target.value)} placeholder="Label for this transaction" />
     <Input label="Description" value={form.description} onChange={e => set("description", e.target.value)} placeholder="Details" />
     <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>

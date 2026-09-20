@@ -11,6 +11,7 @@ import {
   upsertAccount, deleteAccount,
   upsertBkCategory, deleteBkCategory,
 } from "@/lib/bookkeeping-db";
+import { reconcileOnlinePayments } from "@/lib/billing-db";
 import { NextResponse } from "next/server";
 
 export async function GET(req) {
@@ -69,12 +70,14 @@ export async function POST(req) {
     switch (action) {
       case "upsert_transaction":
         await upsertTransaction(data);
+        await reconcileOnlinePayments(data.invoiceId || null);
         break;
       case "bulk_import_transactions":
         await bulkImportTransactions(data.transactions);
         return NextResponse.json({ ok: true, count: data.transactions.length });
       case "delete_transaction":
         await deleteTransaction(data.id);
+        await reconcileOnlinePayments();
         break;
       case "delete_batch":
         await deleteBatch(data.batchId);
