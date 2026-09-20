@@ -1367,8 +1367,8 @@ function PnLView({ filterYear, range, showToast, data, act, companyName }) {
   };
 
   const handleExportPDF = () => {
-    const doc = new jsPDF();
-    const W = 210, margin = 20, cW = W - margin * 2;
+    const doc = new jsPDF({ unit: "mm", format: "letter" }); // US Letter
+    const W = 215.9, margin = 20, cW = W - margin * 2;
     let y = 20;
 
     // Header — brand gold with the green wordmark
@@ -1388,12 +1388,12 @@ function PnLView({ filterYear, range, showToast, data, act, companyName }) {
     const D = [26, 26, 26], G = [107, 101, 96];
 
     const addSection = (title, items, total, totalLabel) => {
-      if (y > 250) { doc.addPage(); y = 20; }
+      if (y > 235) { doc.addPage(); y = 20; }
       doc.setTextColor(...G); doc.setFontSize(9); doc.setFont("helvetica", "bold");
       doc.text(title.toUpperCase(), margin, y); y += 7;
       doc.setFont("helvetica", "normal"); doc.setTextColor(...D);
       for (const item of items) {
-        if (y > 270) { doc.addPage(); y = 20; }
+        if (y > 255) { doc.addPage(); y = 20; }
         doc.text(`  ${item.categoryName}`, margin, y);
         doc.text(fmt(item.total), margin + cW, y, { align: "right" });
         y += 5.5;
@@ -1644,8 +1644,8 @@ function BalanceSheetView({ filterYear, range, showToast, data, act, companyName
   );
 
   const handleExportPDF = () => {
-    const doc = new jsPDF();
-    const W = 210, margin = 20, cW = W - margin * 2;
+    const doc = new jsPDF({ unit: "mm", format: "letter" }); // US Letter
+    const W = 215.9, margin = 20, cW = W - margin * 2;
     let y = 20;
 
     doc.setFillColor(11, 45, 101);
@@ -1664,14 +1664,14 @@ function BalanceSheetView({ filterYear, range, showToast, data, act, companyName
     const D = [26, 26, 26], G = [107, 101, 96];
 
     const pdfSection = (title) => {
-      if (y > 250) { doc.addPage(); y = 20; }
+      if (y > 235) { doc.addPage(); y = 20; }
       doc.setTextColor(...G); doc.setFontSize(9); doc.setFont("helvetica", "bold");
       doc.text(title.toUpperCase(), margin, y); y += 7;
       doc.setFont("helvetica", "normal"); doc.setTextColor(...D);
     };
 
     const pdfRow = (label, value, bold = false) => {
-      if (y > 270) { doc.addPage(); y = 20; }
+      if (y > 255) { doc.addPage(); y = 20; }
       if (bold) doc.setFont("helvetica", "bold"); else doc.setFont("helvetica", "normal");
       doc.text(`  ${label}`, margin, y);
       doc.text(fmt(value), margin + cW, y, { align: "right" });
