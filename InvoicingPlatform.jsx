@@ -49,6 +49,7 @@ const theme = {
 
 const genId = () => Math.random().toString(36).substr(2, 9);
 const SIDEBAR_BOTTOM = ["users", "settings"]; // icon-only, pinned at the bottom of the sidebar
+const MOBILE_PRIMARY = ["dashboard", "invoices", "billing", "bookkeeping"]; // rest live behind "More"
 const RECURRING = { month: { label: "Monthly", months: 1 }, quarter: { label: "Quarterly", months: 3 }, year: { label: "Annually", months: 12 } };
 const addMonths = (iso, n) => { if (!iso) return ""; const [y, m, d] = iso.split("-").map(Number); const dt = new Date(y, m - 1 + n, d); return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`; };
 const recurringMonthly = (inv) => inv.recurring && RECURRING[inv.recurring] ? (inv.total || 0) / RECURRING[inv.recurring].months : 0;
@@ -313,6 +314,7 @@ function buildOverdueEmailHTML(invoice, settings, payUrl) {
               <tr><td style="font-size:13px;color:#888888;padding:8px 0;">Days Overdue</td><td align="right" style="font-size:13px;color:#e05555;font-weight:600;padding:8px 0;">${daysOverdue} days</td></tr>
             </table>
             <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="border-top:1px solid #e9e9e9;margin:24px 0;"><tr><td></td></tr></table>
+            ${buildPayButtonHTML(payUrl)}
             <p style="margin:0 0 24px;font-size:13px;color:#888888;line-height:1.6;">If you've already submitted payment, please disregard this message. Otherwise, please pay as soon as possible to avoid any further delays.</p>
             <p style="margin:20px 0 0;font-size:13px;color:#888888;line-height:1.6;">Questions? Contact ${senderName} directly.</p>
           </td>
@@ -423,6 +425,7 @@ export default function InvoicingPlatform() {
   const [editItem, setEditItem] = useState(null);
   const [viewInvoice, setViewInvoice] = useState(null);
   const [toast, setToast] = useState(null);
+  const [moreOpen, setMoreOpen] = useState(false);
   const saveTimer = useRef(null);
 
   useEffect(() => {
@@ -467,7 +470,7 @@ export default function InvoicingPlatform() {
 
   const update = (key, val) => setData(d => { const newData = { ...d, [key]: val }; persistData(newData); return newData; });
   const updateNow = (key, val) => setData(d => { const newData = { ...d, [key]: val }; persistNow(newData); return newData; });
-  const navigate = (p) => { setPage(p); setViewInvoice(null); if (readHash().page !== p) window.location.hash = p; else writeHash(p); };
+  const navigate = (p) => { setMoreOpen(false); setPage(p); setViewInvoice(null); if (readHash().page !== p) window.location.hash = p; else writeHash(p); };
   const openInvoice = (inv) => { setViewInvoice(inv); writeHash("invoices", inv?.id || ""); };
   const showToast = (message, type = "success") => setToast({ message, type });
 
@@ -655,13 +658,28 @@ export default function InvoicingPlatform() {
       <Modal open={modal === "project"} onClose={() => { setModal(null); setEditItem(null); }} title={editItem ? "Edit Project" : "New Project"}><ProjectForm item={editItem} onSave={saveProject} onCancel={() => { setModal(null); setEditItem(null); }} /></Modal>
       <Modal open={modal === "invoice"} onClose={() => { setModal(null); setEditItem(null); }} title={editItem ? "Edit Invoice" : "New Invoice"} width={640}><InvoiceForm item={editItem} data={data} onSave={saveInvoice} onCancel={() => { setModal(null); setEditItem(null); }} /></Modal>
 
-      {/* Bottom nav — mobile only */}
-      {isMobile && <nav style={{ position: "fixed", bottom: 0, left: 0, right: 0, zIndex: 200, background: theme.surface, borderTop: `1px solid ${theme.borderLight}`, display: "flex", overflowX: "auto", paddingBottom: "env(safe-area-inset-bottom)" }}>
-        {navItems.map(n => <button key={n.id} onClick={() => navigate(n.id)} style={{ flex: "0 0 auto", display: "flex", flexDirection: "column", alignItems: "center", gap: 2, padding: "8px 12px", border: "none", background: "transparent", color: page === n.id ? theme.accent : theme.textMuted, fontSize: 9, fontFamily: "'DM Sans', sans-serif", cursor: "pointer", minWidth: 56, fontWeight: page === n.id ? 600 : 400 }}>
-          <span style={{ color: page === n.id ? theme.accent : theme.textMuted }}>{n.icon}</span>
-          {n.label}
-        </button>)}
-      </nav>}
+      {/* Bottom nav — mobile only: 4 primary tabs + More */}
+      {isMobile && <>
+        {moreOpen && <div onClick={() => setMoreOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 210, background: "rgba(0,0,0,0.35)", backdropFilter: "blur(4px)", display: "flex", alignItems: "flex-end" }}>
+          <div onClick={e => e.stopPropagation()} style={{ background: theme.surface, width: "100%", borderRadius: `${theme.radiusLg} ${theme.radiusLg} 0 0`, padding: "18px 16px calc(18px + env(safe-area-inset-bottom))", boxShadow: theme.shadowLg, animation: "modalIn 0.2s ease" }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8 }}>
+              {navItems.filter(n => !MOBILE_PRIMARY.includes(n.id)).map(n => <button key={n.id} onClick={() => navigate(n.id)} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6, padding: "14px 4px", border: "none", borderRadius: theme.radiusSm, background: page === n.id ? theme.accentLight : theme.surfaceAlt, color: page === n.id ? theme.accent : theme.textSecondary, fontSize: 11, fontWeight: page === n.id ? 600 : 500, fontFamily: "'DM Sans', sans-serif", cursor: "pointer" }}>
+                {n.icon}{n.label}
+              </button>)}
+            </div>
+            <button onClick={() => signOut({ callbackUrl: "/login" })} style={{ width: "100%", marginTop: 14, padding: "10px", background: "none", border: `1px solid ${theme.border}`, borderRadius: theme.radiusSm, color: theme.danger, fontSize: 13, fontWeight: 500, fontFamily: "'DM Sans', sans-serif", cursor: "pointer" }}>Sign Out</button>
+          </div>
+        </div>}
+        <nav style={{ position: "fixed", bottom: 0, left: 0, right: 0, zIndex: 220, background: theme.surface, borderTop: `1px solid ${theme.borderLight}`, display: "grid", gridTemplateColumns: "repeat(5, 1fr)", paddingBottom: "env(safe-area-inset-bottom)" }}>
+          {navItems.filter(n => MOBILE_PRIMARY.includes(n.id)).map(n => <button key={n.id} onClick={() => navigate(n.id)} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 3, padding: "9px 4px", border: "none", background: "transparent", color: page === n.id && !moreOpen ? theme.accent : theme.textMuted, fontSize: 10, fontFamily: "'DM Sans', sans-serif", cursor: "pointer", fontWeight: page === n.id && !moreOpen ? 600 : 400 }}>
+            {n.icon}{n.label}
+          </button>)}
+          <button onClick={() => setMoreOpen(o => !o)} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 3, padding: "9px 4px", border: "none", background: "transparent", color: moreOpen || !MOBILE_PRIMARY.includes(page) ? theme.accent : theme.textMuted, fontSize: 10, fontFamily: "'DM Sans', sans-serif", cursor: "pointer", fontWeight: moreOpen || !MOBILE_PRIMARY.includes(page) ? 600 : 400 }}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg>
+            More
+          </button>
+        </nav>
+      </>}
     </div>
   );
 }
@@ -697,7 +715,7 @@ function DashboardView({ data, totalRevenue, outstanding, overdueCount, draftCou
         <button onClick={() => navigate("invoices")} style={{ fontSize: 12, color: theme.accent, background: "none", border: "none", cursor: "pointer", fontWeight: 500 }}>View All →</button>
       </div>
       {recent.length === 0 ? <Empty icon={Icons.invoice} message="No invoices yet" action={<Btn size="sm" onClick={() => setModal("invoice")} icon={Icons.plus}>Create Invoice</Btn>} /> :
-        <table style={{ width: "100%", fontSize: 13 }}><thead><tr style={{ borderBottom: `1px solid ${theme.borderLight}` }}>
+        <div className="r-tbl"><table style={{ width: "100%", fontSize: 13 }}><thead><tr style={{ borderBottom: `1px solid ${theme.borderLight}` }}>
           {["Invoice", "Client", "Amount", "Status", "Actions"].map(h => <th key={h} style={{ padding: "10px 14px", textAlign: "left", fontSize: 11, textTransform: "uppercase", letterSpacing: "0.05em", color: theme.textMuted, fontWeight: 600 }}>{h}</th>)}
         </tr></thead><tbody>
           {recent.map(inv => <tr key={inv.id} style={{ borderBottom: `1px solid ${theme.borderLight}` }}>
@@ -714,7 +732,7 @@ function DashboardView({ data, totalRevenue, outstanding, overdueCount, draftCou
               </div>
             </td>
           </tr>)}
-        </tbody></table>}
+        </tbody></table></div>}
     </div>
   </div>;
 }
@@ -738,7 +756,7 @@ function InvoicesView({ data, setModal, setEditItem, setViewInvoice, deleteInvoi
     </div>
     <div style={{ background: theme.surface, borderRadius: theme.radius, border: `1px solid ${theme.borderLight}`, overflow: "hidden" }}>
       {filtered.length === 0 ? <Empty icon={Icons.invoice} message="No invoices found" action={<Btn size="sm" onClick={() => setModal("invoice")} icon={Icons.plus}>Create Invoice</Btn>} /> :
-        <table style={{ width: "100%", fontSize: 13 }}><thead><tr style={{ borderBottom: `1px solid ${theme.borderLight}` }}>
+        <div className="r-tbl"><table style={{ width: "100%", fontSize: 13 }}><thead><tr style={{ borderBottom: `1px solid ${theme.borderLight}` }}>
           {["Invoice", "Client", "Due Date", "Total", "Balance", "Status", "Actions"].map(h => <th key={h} style={{ padding: "10px 14px", textAlign: "left", fontSize: 11, textTransform: "uppercase", letterSpacing: "0.05em", color: theme.textMuted, fontWeight: 600 }}>{h}</th>)}
         </tr></thead><tbody>
           {filtered.map(inv => {
@@ -768,7 +786,7 @@ function InvoicesView({ data, setModal, setEditItem, setViewInvoice, deleteInvoi
               </td>
             </tr>;
           })}
-        </tbody></table>}
+        </tbody></table></div>}
     </div>
   </div>;
 }
@@ -864,7 +882,7 @@ function InvoiceDetailView({ invoice: inv, data, onBack, updateStatus, markParti
         </div>
       </div>
 
-      <table style={{ width: "100%", fontSize: 13, marginBottom: 24 }}>
+      <div className="r-tbl"><table style={{ width: "100%", fontSize: 13, marginBottom: 24 }}>
         <thead><tr style={{ borderBottom: `2px solid ${theme.border}` }}>
           {["Item", "Qty", "Rate", "Total"].map(h => <th key={h} style={{ padding: "8px 12px", textAlign: h === "Item" ? "left" : "right", fontSize: 11, textTransform: "uppercase", letterSpacing: "0.05em", color: theme.textMuted, fontWeight: 600 }}>{h}</th>)}
         </tr></thead>
@@ -874,7 +892,7 @@ function InvoiceDetailView({ invoice: inv, data, onBack, updateStatus, markParti
           <td style={{ padding: "10px 12px", textAlign: "right" }}>{fmt(li.rate)}</td>
           <td style={{ padding: "10px 12px", textAlign: "right", fontWeight: 600 }}>{fmt(li.qty * li.rate)}</td>
         </tr>)}</tbody>
-      </table>
+      </table></div>
 
       <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 24 }}>
         <div style={{ width: 240 }}>
@@ -952,9 +970,9 @@ function ServicesView({ data, setModal, setEditItem, deleteService }) {
   return <div>
     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}><h1 style={{ margin: 0, fontFamily: "'Fraunces', serif", fontSize: 24, fontWeight: 700 }}>Services</h1><Btn icon={Icons.plus} onClick={() => setModal("service")}>New Service</Btn></div>
     {data.services.length === 0 ? <div style={{ background: theme.surface, borderRadius: theme.radius, border: `1px solid ${theme.borderLight}` }}><Empty icon={Icons.service} message="No services yet" action={<Btn size="sm" onClick={() => setModal("service")} icon={Icons.plus}>Create Service</Btn>} /></div> :
-      <div style={{ background: theme.surface, borderRadius: theme.radius, border: `1px solid ${theme.borderLight}`, overflow: "hidden" }}><table style={{ width: "100%", fontSize: 13 }}><thead><tr style={{ borderBottom: `1px solid ${theme.borderLight}` }}>{["Service", "Category", "Rate", "Unit", ""].map(h => <th key={h} style={{ padding: "10px 16px", textAlign: "left", fontSize: 11, textTransform: "uppercase", letterSpacing: "0.05em", color: theme.textMuted, fontWeight: 600 }}>{h}</th>)}</tr></thead><tbody>
+      <div style={{ background: theme.surface, borderRadius: theme.radius, border: `1px solid ${theme.borderLight}`, overflow: "hidden" }}><div className="r-tbl"><table style={{ width: "100%", fontSize: 13 }}><thead><tr style={{ borderBottom: `1px solid ${theme.borderLight}` }}>{["Service", "Category", "Rate", "Unit", ""].map(h => <th key={h} style={{ padding: "10px 16px", textAlign: "left", fontSize: 11, textTransform: "uppercase", letterSpacing: "0.05em", color: theme.textMuted, fontWeight: 600 }}>{h}</th>)}</tr></thead><tbody>
         {data.services.map(s => { const cat = data.categories.find(c => c.id === s.categoryId); return <tr key={s.id} style={{ borderBottom: `1px solid ${theme.borderLight}` }}><td style={{ padding: "10px 16px" }}><div style={{ fontWeight: 500 }}>{s.name}</div>{s.description && <div style={{ fontSize: 12, color: theme.textMuted, marginTop: 2 }}>{s.description}</div>}</td><td style={{ padding: "10px 16px" }}>{cat && <span style={{ padding: "2px 8px", borderRadius: 12, fontSize: 11, fontWeight: 500, background: cat.color + "18", color: cat.color }}>{cat.name}</span>}</td><td style={{ padding: "10px 16px", fontWeight: 600, fontFamily: "'Fraunces', serif" }}>{fmt(s.rate || 0)}</td><td style={{ padding: "10px 16px", color: theme.textSecondary, fontSize: 12 }}>{s.unit || "per unit"}</td><td style={{ padding: "10px 16px" }}><div style={{ display: "flex", gap: 4 }}><Btn size="sm" variant="ghost" icon={Icons.edit} onClick={() => { setEditItem(s); setModal("service"); }} /><Btn size="sm" variant="ghost" icon={Icons.trash} onClick={() => { if (confirm("Delete?")) deleteService(s.id); }} style={{ color: theme.danger }} /></div></td></tr>; })}
-      </tbody></table></div>}
+      </tbody></table></div></div>}
   </div>;
 }
 
@@ -1134,7 +1152,7 @@ function ReportsView({ data }) {
 
       {/* Period table */}
       <div style={{ background: theme.surface, borderRadius: theme.radius, border: `1px solid ${theme.borderLight}`, overflow: "hidden" }}>
-        <table style={{ width: "100%", fontSize: 13 }}>
+        <div className="r-tbl"><table style={{ width: "100%", fontSize: 13 }}>
           <thead><tr style={{ borderBottom: `1px solid ${theme.borderLight}` }}>
             {["Period", "Revenue", "Invoices", "Avg Invoice"].map(h => <th key={h} style={{ padding: "10px 16px", textAlign: h === "Period" ? "left" : "right", fontSize: 11, textTransform: "uppercase", letterSpacing: "0.05em", color: theme.textMuted, fontWeight: 600 }}>{h}</th>)}
           </tr></thead>
@@ -1152,7 +1170,7 @@ function ReportsView({ data }) {
               <td style={{ padding: "10px 16px", textAlign: "right", fontWeight: 600 }}>{totalPeriodCount > 0 ? fmt(totalPeriodRevenue / totalPeriodCount) : "—"}</td>
             </tr>
           </tbody>
-        </table>
+        </table></div>
       </div>
     </div>}
 
@@ -1179,7 +1197,7 @@ function ReportsView({ data }) {
               </div>}
           </div>
           <div style={{ background: theme.surface, borderRadius: theme.radius, border: `1px solid ${theme.borderLight}`, overflow: "hidden" }}>
-            <table style={{ width: "100%", fontSize: 13 }}>
+            <div className="r-tbl"><table style={{ width: "100%", fontSize: 13 }}>
               <thead><tr style={{ borderBottom: `1px solid ${theme.borderLight}` }}>
                 {["Client", "Revenue", "% of Total", "Paid Invoices", "Outstanding"].map(h => <th key={h} style={{ padding: "10px 16px", textAlign: h === "Client" ? "left" : "right", fontSize: 11, textTransform: "uppercase", letterSpacing: "0.05em", color: theme.textMuted, fontWeight: 600 }}>{h}</th>)}
               </tr></thead>
@@ -1192,7 +1210,7 @@ function ReportsView({ data }) {
                   <td style={{ padding: "10px 16px", textAlign: "right", color: c.outstanding > 0 ? theme.warning : theme.textMuted, fontWeight: c.outstanding > 0 ? 600 : 400 }}>{c.outstanding > 0 ? fmt(c.outstanding) : "—"}</td>
                 </tr>)}
               </tbody>
-            </table>
+            </table></div>
           </div>
         </>;
       })()}
@@ -1220,7 +1238,7 @@ function ReportsView({ data }) {
               </div>}
           </div>
           <div style={{ background: theme.surface, borderRadius: theme.radius, border: `1px solid ${theme.borderLight}`, overflow: "hidden" }}>
-            <table style={{ width: "100%", fontSize: 13 }}>
+            <div className="r-tbl"><table style={{ width: "100%", fontSize: 13 }}>
               <thead><tr style={{ borderBottom: `1px solid ${theme.borderLight}` }}>
                 {["Project", "Revenue", "Invoices Paid"].map(h => <th key={h} style={{ padding: "10px 16px", textAlign: h === "Project" ? "left" : "right", fontSize: 11, textTransform: "uppercase", letterSpacing: "0.05em", color: theme.textMuted, fontWeight: 600 }}>{h}</th>)}
               </tr></thead>
@@ -1231,7 +1249,7 @@ function ReportsView({ data }) {
                   <td style={{ padding: "10px 16px", textAlign: "right", color: theme.textSecondary }}>{p.count}</td>
                 </tr>)}
               </tbody>
-            </table>
+            </table></div>
           </div>
         </>;
       })()}

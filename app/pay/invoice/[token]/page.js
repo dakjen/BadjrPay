@@ -34,7 +34,7 @@ function Banner({ tone, children }) {
   return <div style={{ background: t.bg, color: t.color, borderRadius: 8, padding: "10px 14px", fontSize: 13, fontWeight: 500, marginBottom: 18 }}>{children}</div>;
 }
 function Row({ label, value, strong, muted }) {
-  return <div style={{ display: "flex", justifyContent: "space-between", gap: 16, padding: "9px 0", borderBottom: `1px solid ${c.borderLight}`, fontSize: 14 }}><span style={{ color: c.textSecondary }}>{label}</span><span style={{ fontWeight: strong ? 700 : 500, color: muted ? c.textMuted : c.text, textAlign: "right" }}>{value}</span></div>;
+  return <div style={{ display: "flex", justifyContent: "space-between", gap: 12, padding: "9px 0", borderBottom: `1px solid ${c.borderLight}`, fontSize: 14, alignItems: "baseline" }}><span style={{ color: c.textSecondary, minWidth: 0, overflowWrap: "anywhere" }}>{label}</span><span style={{ fontWeight: strong ? 700 : 500, color: muted ? c.textMuted : c.text, textAlign: "right", whiteSpace: "nowrap", flexShrink: 0 }}>{value}</span></div>;
 }
 
 export default async function InvoicePayPage({ params, searchParams }) {
@@ -92,8 +92,9 @@ export default async function InvoicePayPage({ params, searchParams }) {
       {docs.map(d => <a key={d.id} href={d.url} target="_blank" rel="noreferrer" style={{ display: "block", padding: "8px 0", borderBottom: `1px solid ${c.borderLight}`, fontSize: 14, color: c.accent, textDecoration: "none", fontWeight: 500 }}>{d.filename} ↗</a>)}
     </div>}
     {balance > 0 && configured && options.length > 0 && <form method="POST" action={`/api/pay/invoice/${token}`} style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-      {options.map((o, i) => <button key={o.kind} type="submit" name="kind" value={o.kind} style={{ width: "100%", padding: "13px 18px", border: i === 0 ? "none" : `1px solid ${c.border}`, borderRadius: 8, background: i === 0 ? c.accent : c.surface, color: i === 0 ? "#fff" : c.text, fontFamily: sans, fontSize: 15, fontWeight: 600, cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <span>{i === 0 ? "Pay " : ""}{o.label.toLowerCase().startsWith("installment") ? o.label : o.label.toLowerCase()}</span><span>{fmt(o.amount)}</span>
+      {options.map((o, i) => <button key={o.kind} type="submit" name="kind" value={o.kind} style={{ width: "100%", padding: "13px 16px", border: i === 0 ? "none" : `1px solid ${c.border}`, borderRadius: 8, background: i === 0 ? c.accent : c.surface, color: i === 0 ? "#fff" : c.text, fontFamily: sans, fontSize: 15, fontWeight: 600, cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, textAlign: "left", lineHeight: 1.3 }}>
+        <span style={{ minWidth: 0 }}>{i === 0 ? "Pay " : ""}{o.label}{o.note && <span style={{ display: "block", fontSize: 12, fontWeight: 500, opacity: 0.75 }}>due {fmtDate(o.note)}</span>}</span>
+        <span style={{ whiteSpace: "nowrap", flexShrink: 0 }}>{fmt(o.amount)}</span>
       </button>)}
     </form>}
     <p style={{ color: c.textMuted, fontSize: 12, margin: "14px 0 0", lineHeight: 1.5 }}>{balance > 0 ? "You'll choose bank account (ACH) or card on Stripe's secure checkout page." : ""}</p>

@@ -36,7 +36,7 @@ function Banner({ tone, children }) {
 }
 
 function Row({ label, value, strong }) {
-  return <div style={{ display: "flex", justifyContent: "space-between", gap: 16, padding: "10px 0", borderBottom: `1px solid ${c.borderLight}`, fontSize: 14 }}><span style={{ color: c.textSecondary }}>{label}</span><span style={{ fontWeight: strong ? 700 : 500, textAlign: "right" }}>{value}</span></div>;
+  return <div style={{ display: "flex", justifyContent: "space-between", gap: 12, padding: "10px 0", borderBottom: `1px solid ${c.borderLight}`, fontSize: 14, alignItems: "baseline" }}><span style={{ color: c.textSecondary, minWidth: 0, overflowWrap: "anywhere" }}>{label}</span><span style={{ fontWeight: strong ? 700 : 500, textAlign: "right", whiteSpace: "nowrap", flexShrink: 0 }}>{value}</span></div>;
 }
 
 export default async function PayPage({ params, searchParams }) {

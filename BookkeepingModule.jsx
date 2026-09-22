@@ -335,9 +335,9 @@ function ColumnChart({ buckets, series, stacked = true, height = 260, emptyMessa
       {series.length > 1 ? <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>{series.map(sr => <span key={sr.key} style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, color: theme.textSecondary }}><span style={{ width: 10, height: 10, borderRadius: 2, background: sr.color, display: "inline-block" }} />{sr.label}</span>)}</div> : <span />}
       <button onClick={() => setShowTable(v => !v)} style={{ background: "none", border: "none", color: theme.textMuted, fontSize: 12, cursor: "pointer", fontFamily: "'DM Sans', sans-serif" }}>{showTable ? "Hide table" : "Show as table"}</button>
     </div>
-    {showTable && <table style={{ width: "100%", marginTop: 6, fontSize: 12 }}><thead><tr style={{ borderBottom: `1px solid ${theme.borderLight}` }}><th style={{ textAlign: "left", padding: "6px 8px", color: theme.textMuted, fontWeight: 600 }}>Month</th>{series.map(sr => <th key={sr.key} style={{ textAlign: "right", padding: "6px 8px", color: theme.textMuted, fontWeight: 600 }}>{sr.label}</th>)}</tr></thead><tbody>
+    {showTable && <div className="r-tbl"><table style={{ width: "100%", marginTop: 6, fontSize: 12 }}><thead><tr style={{ borderBottom: `1px solid ${theme.borderLight}` }}><th style={{ textAlign: "left", padding: "6px 8px", color: theme.textMuted, fontWeight: 600 }}>Month</th>{series.map(sr => <th key={sr.key} style={{ textAlign: "right", padding: "6px 8px", color: theme.textMuted, fontWeight: 600 }}>{sr.label}</th>)}</tr></thead><tbody>
       {buckets.map(b => <tr key={b.key} style={{ borderBottom: `1px solid ${theme.borderLight}` }}><td style={{ padding: "6px 8px" }}>{b.label}</td>{series.map(sr => <td key={sr.key} style={{ padding: "6px 8px", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{fmt(b.values[sr.key] || 0)}</td>)}</tr>)}
-    </tbody></table>}
+    </tbody></table></div>}
   </div>;
 }
 
@@ -641,7 +641,7 @@ function LedgerView({ data, act, showToast, canInput, canEdit }) {
 
     {filtered.length === 0 ? <Empty message="No transactions found." /> :
       <div style={{ overflowX: "auto" }}>
-        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+        <div className="r-tbl"><table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
           <thead>
             <tr style={{ borderBottom: `2px solid ${theme.borderLight}` }}>
               <th style={thStyle}>Date</th>
@@ -674,7 +674,7 @@ function LedgerView({ data, act, showToast, canInput, canEdit }) {
               </td>}
             </tr>)}
           </tbody>
-        </table>
+        </table></div>
       </div>}
 
     <Modal open={!!modal} onClose={() => setModal(null)} title={modal === "add" ? "Add Transaction" : "Edit Transaction"} width={560}>
@@ -882,7 +882,7 @@ function CSVImportView({ data, act, showToast, reload }) {
     {step === 3 && <div>
       <h3 style={{ fontFamily: "'Fraunces', serif", fontSize: 16, fontWeight: 600, margin: "0 0 14px" }}>Preview ({getMappedRows().length} rows)</h3>
       <div style={{ overflowX: "auto", marginBottom: 16 }}>
-        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+        <div className="r-tbl"><table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
           <thead>
             <tr style={{ borderBottom: `2px solid ${theme.borderLight}` }}>
               <th style={thStyle}>Date</th>
@@ -901,7 +901,7 @@ function CSVImportView({ data, act, showToast, reload }) {
               <td style={tdStyle}>{r.type}</td>
             </tr>)}
           </tbody>
-        </table>
+        </table></div>
         {getMappedRows().length > 20 && <div style={{ fontSize: 12, color: theme.textMuted, marginTop: 8 }}>Showing first 20 of {getMappedRows().length} rows</div>}
       </div>
       <div style={{ display: "flex", gap: 8 }}>
@@ -965,7 +965,7 @@ function ReconcileView({ data, act, showToast, canInput }) {
 
     {unreconciled.length === 0 ? <Empty message="All transactions are reconciled." /> :
       <div style={{ overflowX: "auto" }}>
-        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+        <div className="r-tbl"><table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
           <thead>
             <tr style={{ borderBottom: `2px solid ${theme.borderLight}` }}>
               {canInput && <th style={{ ...thStyle, width: 36 }}></th>}
@@ -984,7 +984,7 @@ function ReconcileView({ data, act, showToast, canInput }) {
               <td style={{ ...tdStyle, textAlign: "right", fontWeight: 600, color: t.amount >= 0 ? theme.success : theme.danger }}>{t.amount >= 0 ? "+" : "-"}{fmt(Math.abs(t.amount))}</td>
             </tr>)}
           </tbody>
-        </table>
+        </table></div>
       </div>}
   </div>;
 }
@@ -1885,7 +1885,7 @@ function ChartOfAccountsView({ data, act, showToast, canEdit }) {
     return <div key={type} style={{ marginBottom: 20 }}>
       <div style={{ padding: "12px 14px", background: theme.surfaceAlt, fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: theme.textSecondary, display: "flex", justifyContent: "space-between", alignItems: "center" }}>{label}<span style={{ fontWeight: 500, textTransform: "none", letterSpacing: 0 }}>{rows.length} account{rows.length === 1 ? "" : "s"}</span></div>
       {rows.length === 0 ? <div style={{ padding: "14px", fontSize: 13, color: theme.textMuted }}>None yet.</div> :
-        <table style={{ width: "100%" }}><tbody>{parents.map(p => [row(p, 0), ...children(p.id).map(c => row(c, 1))])}</tbody></table>}
+        <div className="r-tbl"><table style={{ width: "100%" }}><tbody>{parents.map(p => [row(p, 0), ...children(p.id).map(c => row(c, 1))])}</tbody></table></div>}
     </div>;
   };
 
@@ -1902,12 +1902,12 @@ function ChartOfAccountsView({ data, act, showToast, canEdit }) {
     <div style={{ background: theme.surface, borderRadius: theme.radius, border: `1px solid ${theme.borderLight}`, overflow: "hidden" }}>
       <div style={{ padding: "12px 14px", background: theme.surfaceAlt, fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: theme.textSecondary }}>Bank &amp; cash accounts</div>
       {accounts.length === 0 ? <div style={{ padding: "14px", fontSize: 13, color: theme.textMuted }}>No accounts yet — add your checking account so imports and the Balance Sheet have somewhere to land.</div> :
-        <table style={{ width: "100%" }}><tbody>{accounts.map(a => <tr key={a.id} style={{ borderBottom: `1px solid ${theme.borderLight}` }}>
+        <div className="r-tbl"><table style={{ width: "100%" }}><tbody>{accounts.map(a => <tr key={a.id} style={{ borderBottom: `1px solid ${theme.borderLight}` }}>
           <td style={{ padding: "9px 14px", fontSize: 13, fontWeight: 500 }}>{a.name}</td>
           <td style={{ padding: "9px 14px", fontSize: 12, color: theme.textSecondary }}>{(ACCOUNT_TYPES.find(t => t[0] === a.accountType) || [])[1] || a.accountType}</td>
           <td style={{ padding: "9px 14px", fontSize: 12, color: theme.textMuted, textAlign: "right", whiteSpace: "nowrap" }}>{acctUsage[a.id] ? `${acctUsage[a.id]} txns` : "—"}</td>
           <td style={{ padding: "9px 14px", textAlign: "right", whiteSpace: "nowrap" }}>{canEdit && <><Btn size="sm" variant="ghost" icon={BkIcons.edit} onClick={() => setAcctModal(a)} title="Edit" /><Btn size="sm" variant="ghost" icon={BkIcons.trash} style={{ color: theme.danger }} onClick={() => removeAccount(a)} title="Delete" /></>}</td>
-        </tr>)}</tbody></table>}
+        </tr>)}</tbody></table></div>}
     </div>
 
     <Modal open={!!catModal} onClose={() => setCatModal(null)} title={catModal === "new" ? "New Category" : "Edit Category"}>
