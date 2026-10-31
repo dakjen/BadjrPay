@@ -71,6 +71,18 @@ const BkIcons = {
   search: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>,
 };
 
+// A bank row's identity: same date + amount + description + account = same transaction.
+// Re-importing a file therefore overwrites rather than duplicating.
+function fingerprintId(r, accountId) {
+  const norm = `${r.date}|${Number(r.amount).toFixed(2)}|${String(r.description || "").toLowerCase().replace(/\s+/g, " ").trim()}|${accountId || ""}`;
+  let h1 = 0x811c9dc5, h2 = 0x01000193;
+  for (let i = 0; i < norm.length; i++) {
+    h1 = Math.imul(h1 ^ norm.charCodeAt(i), 0x01000193) >>> 0;
+    h2 = Math.imul(h2 + norm.charCodeAt(i) + 1, 0x85ebca6b) >>> 0;
+  }
+  return `csv_${h1.toString(36)}${h2.toString(36)}`;
+}
+
 // ── CSV Parsing ──
 function parseCSV(text) {
   const lines = text.split("\n").map(l => l.trim()).filter(Boolean);
@@ -761,7 +773,14 @@ function CSVImportView({ data, act, showToast, reload }) {
   const [defaultCat, setDefaultCat] = useState("");
   const [negIsExpense, setNegIsExpense] = useState(true);
   const [importResult, setImportResult] = useState(null);
+  const [onlyNew, setOnlyNew] = useState(true);
   const fileRef = useRef(null);
+
+  // Where the previous upload for this account left off
+  const batches = data.importBatches || [];
+  const lastImport = batches.filter(b => !accountId || b.accountId === accountId)[0] || null;
+  const cutoff = lastImport?.lastDate || null;
+  const applyCutoff = onlyNew && !!cutoff;
 
   const handleFile = (e) => {
     const file = e.target.files?.[0];
@@ -770,7 +789,7 @@ function CSVImportView({ data, act, showToast, reload }) {
     reader.onload = (ev) => {
       const parsed = parseCSV(ev.target.result);
       if (parsed.headers.length === 0) { showToast("Could not parse CSV", "error"); return; }
-      setCsv(parsed);
+      setCsv({ ...parsed, filename: file.name });
       // Auto-detect common column names
       const auto = {};
       const h = parsed.headers.map(x => x.toLowerCase());
@@ -813,22 +832,41 @@ function CSVImportView({ data, act, showToast, reload }) {
     }).filter(r => r.date);
   };
 
+  const allRows = getMappedRows();
+  const rowsToImport = applyCutoff ? allRows.filter(r => r.date > cutoff) : allRows;
+  const skippedByDate = allRows.length - rowsToImport.length;
+
   const handleImport = async () => {
-    const rows = getMappedRows();
-    if (rows.length === 0) { showToast("No valid rows to import", "error"); return; }
+    const rows = rowsToImport;
+    if (rows.length === 0) { showToast("No rows to import", "error"); return; }
     const batchId = genId();
-    const transactions = rows.map(r => ({
-      id: genId(), date: r.date, description: r.description, name: "",
-      amount: r.type === "expense" ? -Math.abs(r.amount) : Math.abs(r.amount),
-      categoryId: defaultCat || null, accountId: accountId || null,
-      type: r.type, vendor: "", reference: r.reference, notes: "",
-      reconciled: false, reviewed: false, source: "csv_import", importBatchId: batchId,
-    }));
-    const ok = await act("bulk_import_transactions", { transactions });
+    const existing = new Set((data.transactions || []).map(t => t.id));
+    const all = rows.map(r => {
+      const amount = r.type === "expense" ? -Math.abs(r.amount) : Math.abs(r.amount);
+      return {
+        id: fingerprintId({ ...r, amount }, accountId), date: r.date, description: r.description, name: "",
+        amount, categoryId: defaultCat || null, accountId: accountId || null,
+        type: r.type, vendor: "", reference: r.reference, notes: "",
+        reconciled: false, reviewed: false, source: "csv_import", importBatchId: batchId,
+      };
+    });
+    // Collapse repeats inside the file itself, then drop anything already in the ledger
+    const seen = new Set();
+    const unique = all.filter(t => (seen.has(t.id) ? false : (seen.add(t.id), true)));
+    const transactions = unique.filter(t => !existing.has(t.id));
+    const skipped = all.length - transactions.length;
+    if (transactions.length === 0) {
+      showToast(`All ${all.length} rows are already in your ledger — nothing imported`, "info");
+      setImportResult({ count: 0, skipped, batchId }); setStep(4);
+      return;
+    }
+    const dates = transactions.map(t => t.date).sort();
+    const batch = { id: batchId, accountId: accountId || null, filename: csv?.filename || "", rowCount: transactions.length, skippedCount: skipped + skippedByDate, firstDate: dates[0] || null, lastDate: dates[dates.length - 1] || null };
+    const ok = await act("bulk_import_transactions", { transactions, batch });
     if (ok) {
-      setImportResult({ count: transactions.length, batchId });
+      setImportResult({ count: transactions.length, skipped, skippedByDate, batchId, firstDate: batch.firstDate, lastDate: batch.lastDate });
       setStep(4);
-      showToast(`Imported ${transactions.length} transactions`);
+      showToast(skipped > 0 ? `Imported ${transactions.length} · skipped ${skipped} already in your ledger` : `Imported ${transactions.length} transactions`);
     }
   };
 
@@ -879,8 +917,32 @@ function CSVImportView({ data, act, showToast, reload }) {
       </div>
     </div>}
 
+    {step === 1 && (data.importBatches || []).length > 0 && <div style={{ background: theme.surface, border: `1px solid ${theme.borderLight}`, borderRadius: theme.radius, overflow: "hidden", marginBottom: 20 }}>
+      <div style={{ padding: "12px 16px", borderBottom: `1px solid ${theme.borderLight}`, fontWeight: 600, fontSize: 14, fontFamily: "'Fraunces', serif" }}>Previous uploads</div>
+      <div className="r-tbl"><table style={{ width: "100%", fontSize: 13 }}>
+        <thead><tr style={{ borderBottom: `1px solid ${theme.borderLight}` }}>
+          <th style={thStyle}>Uploaded</th><th style={thStyle}>File</th><th style={thStyle}>Account</th><th style={thStyle}>Covers</th><th style={{ ...thStyle, textAlign: "right" }}>Rows</th>
+        </tr></thead>
+        <tbody>{(data.importBatches || []).map(b => <tr key={b.id} style={{ borderBottom: `1px solid ${theme.borderLight}` }}>
+          <td style={tdStyle}>{fmtDate(b.importedAt)}</td>
+          <td style={{ ...tdStyle, maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{b.filename || "—"}</td>
+          <td style={tdStyle}>{b.accountName || "—"}</td>
+          <td style={tdStyle}>{fmtDate(b.firstDate)} – {fmtDate(b.lastDate)}</td>
+          <td style={{ ...tdStyle, textAlign: "right", fontWeight: 600 }}>{b.rowCount}{b.skippedCount > 0 && <span style={{ fontWeight: 400, color: theme.textMuted }}> (+{b.skippedCount} skipped)</span>}</td>
+        </tr>)}</tbody>
+      </table></div>
+    </div>}
+
     {step === 3 && <div>
-      <h3 style={{ fontFamily: "'Fraunces', serif", fontSize: 16, fontWeight: 600, margin: "0 0 14px" }}>Preview ({getMappedRows().length} rows)</h3>
+      <h3 style={{ fontFamily: "'Fraunces', serif", fontSize: 16, fontWeight: 600, margin: "0 0 4px" }}>Preview ({rowsToImport.length} of {getMappedRows().length} rows)</h3>
+      {lastImport && <div style={{ background: theme.blueLight, color: theme.blue, borderRadius: theme.radiusSm, padding: "10px 14px", fontSize: 13, margin: "0 0 14px" }}>
+        <div>Last upload{lastImport.accountName ? ` for ${lastImport.accountName}` : ""}: <b>{lastImport.rowCount}</b> rows covering {fmtDate(lastImport.firstDate)} – <b>{fmtDate(lastImport.lastDate)}</b>, imported {fmtDate(lastImport.importedAt)}.</div>
+        <label style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8, cursor: "pointer", color: theme.text }}>
+          <input type="checkbox" checked={onlyNew} onChange={e => setOnlyNew(e.target.checked)} style={{ accentColor: theme.accent }} />
+          <span>Only import transactions after {fmtDate(cutoff)}{skippedByDate > 0 ? ` — skips ${skippedByDate} older row${skippedByDate === 1 ? "" : "s"}` : ""}</span>
+        </label>
+      </div>}
+      {!lastImport && <div style={{ fontSize: 12, color: theme.textMuted, margin: "0 0 14px" }}>First upload for this account. Future uploads will offer to start from where this one ends.</div>}
       <div style={{ overflowX: "auto", marginBottom: 16 }}>
         <div className="r-tbl"><table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
           <thead>
@@ -912,7 +974,11 @@ function CSVImportView({ data, act, showToast, reload }) {
 
     {step === 4 && importResult && <div style={{ textAlign: "center", padding: "40px 20px" }}>
       <div style={{ fontSize: 48, marginBottom: 12 }}>{BkIcons.check}</div>
-      <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 8, color: theme.success }}>Imported {importResult.count} transactions</div>
+      <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 8, color: importResult.count > 0 ? theme.success : theme.textSecondary }}>Imported {importResult.count} transaction{importResult.count === 1 ? "" : "s"}</div>
+      {importResult.lastDate && <div style={{ fontSize: 13, color: theme.textSecondary, marginBottom: 4 }}>Covering {fmtDate(importResult.firstDate)} – <b>{fmtDate(importResult.lastDate)}</b>. Your next upload will start from there.</div>}
+      {importResult.skippedByDate > 0 && <div style={{ fontSize: 13, color: theme.textSecondary, marginBottom: 4 }}>Skipped <b>{importResult.skippedByDate}</b> row{importResult.skippedByDate === 1 ? "" : "s"} dated on or before the previous upload.</div>}
+      {importResult.skipped > 0 && <div style={{ fontSize: 13, color: theme.textSecondary, marginBottom: 4 }}>Skipped <b>{importResult.skipped}</b> row{importResult.skipped === 1 ? "" : "s"} already in your ledger — re-importing a file or an overlapping date range won't double-count.</div>}
+      <div style={{ fontSize: 12, color: theme.textMuted, maxWidth: 440, margin: "6px auto 0", lineHeight: 1.5 }}>If a deposit here is payment for an invoice, open it in the Ledger and set <b>Apply to invoice</b> (or approve the match in Reconcile) so the money is counted once, not twice.</div>
       <div style={{ display: "flex", gap: 8, justifyContent: "center", marginTop: 16 }}>
         <Btn variant="danger" size="sm" onClick={handleUndo}>Undo Import</Btn>
         <Btn size="sm" onClick={() => { setStep(1); setCsv(null); setMapping({}); setImportResult(null); }}>Import Another</Btn>

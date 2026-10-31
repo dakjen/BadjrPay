@@ -9,7 +9,7 @@ import {
   upsertContractor, deleteContractor,
   upsertContractorPayment, deleteContractorPayment,
   upsertAccount, deleteAccount,
-  upsertBkCategory, deleteBkCategory,
+  upsertBkCategory, deleteBkCategory, recordImportBatch, deleteImportBatch,
 } from "@/lib/bookkeeping-db";
 import { reconcileOnlinePayments } from "@/lib/billing-db";
 import { NextResponse } from "next/server";
@@ -74,6 +74,7 @@ export async function POST(req) {
         break;
       case "bulk_import_transactions":
         await bulkImportTransactions(data.transactions);
+        if (data.batch) await recordImportBatch(data.batch);
         return NextResponse.json({ ok: true, count: data.transactions.length });
       case "delete_transaction":
         await deleteTransaction(data.id);
@@ -81,6 +82,7 @@ export async function POST(req) {
         break;
       case "delete_batch":
         await deleteBatch(data.batchId);
+        await deleteImportBatch(data.batchId);
         break;
       case "reconcile_transactions":
         await reconcileTransactions(data.ids, data.reconciled !== false);
