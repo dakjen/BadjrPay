@@ -1444,9 +1444,23 @@ function generateInstallments(total, numPayments, interval, startDate) {
   return result;
 }
 
+// Work out the cadence of an existing schedule so it can be re-edited
+function inferPlan(installments = []) {
+  const sorted = [...installments].filter(i => i.dueDate).sort((a, b) => a.dueDate.localeCompare(b.dueDate));
+  if (sorted.length === 0) return { planPayments: 3, planInterval: "monthly", planStartDate: "" };
+  let interval = "monthly";
+  if (sorted.length > 1) {
+    const gap = Math.round((new Date(sorted[1].dueDate) - new Date(sorted[0].dueDate)) / 86400000);
+    interval = gap <= 10 ? "weekly" : gap <= 20 ? "biweekly" : "monthly";
+  }
+  return { planPayments: sorted.length, planInterval: interval, planStartDate: sorted[0].dueDate };
+}
+
 function InvoiceForm({ item, data, onSave, onCancel }) {
   const hasExistingInstallments = (item?.installments || []).length > 0;
-  const [form, setForm] = useState({ clientId: "", clientName: "", clientEmail: "", clientPhone: "", clientAddress: "", projectId: "", dueDate: "", notes: "", deposit: 0, items: [{ description: "", qty: 1, rate: 0 }], installments: [], paymentPlan: hasExistingInstallments, planPayments: 3, planInterval: "monthly", planStartDate: "", ...item });
+  const existingPlan = inferPlan(item?.installments);
+  const paidInstallments = (item?.installments || []).filter(i => i.status === "paid");
+  const [form, setForm] = useState({ clientId: "", clientName: "", clientEmail: "", clientPhone: "", clientAddress: "", projectId: "", dueDate: "", notes: "", deposit: 0, items: [{ description: "", qty: 1, rate: 0 }], installments: [], paymentPlan: hasExistingInstallments, ...existingPlan, ...item, ...(hasExistingInstallments ? existingPlan : {}), paymentPlan: hasExistingInstallments });
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
   const setLI = (i, k, v) => { const items = [...form.items]; items[i] = { ...items[i], [k]: v }; set("items", items); };
   const addLine = () => set("items", [...form.items, { description: "", qty: 1, rate: 0 }]);
@@ -1459,15 +1473,21 @@ function InvoiceForm({ item, data, onSave, onCancel }) {
     if (cl) setForm(f => ({ ...f, clientId: cl.id, clientName: cl.name, clientEmail: cl.email, clientPhone: cl.phone, clientAddress: cl.address }));
     else setForm(f => ({ ...f, clientId: "", clientName: "", clientEmail: "", clientPhone: "", clientAddress: "" }));
   };
-  const previewInstallments = !hasExistingInstallments && form.paymentPlan && form.planStartDate && total > 0
-    ? generateInstallments(total, form.planPayments, form.planInterval, form.planStartDate)
+  // Rebuild the schedule when the plan is new or its settings changed; already-paid payments are kept
+  const planChanged = form.planStartDate !== existingPlan.planStartDate || form.planPayments !== existingPlan.planPayments || form.planInterval !== existingPlan.planInterval;
+  const paidTotal = paidInstallments.reduce((t, i) => t + (i.amount || 0), 0);
+  const buildSchedule = () => {
+    if (!form.paymentPlan) return [];
+    if (hasExistingInstallments && !planChanged) return form.installments || item.installments || [];
+    const spread = generateInstallments(Math.max(0, total - paidTotal), form.planPayments, form.planInterval, form.planStartDate);
+    return [...paidInstallments, ...spread];
+  };
+  const previewInstallments = form.paymentPlan && form.planStartDate && total > 0 && (!hasExistingInstallments || planChanged)
+    ? generateInstallments(Math.max(0, total - paidTotal), form.planPayments, form.planInterval, form.planStartDate)
     : [];
   const handleSave = () => {
     if (!form.clientId) return;
-    const installments = (!hasExistingInstallments && form.paymentPlan)
-      ? generateInstallments(total, form.planPayments, form.planInterval, form.planStartDate)
-      : (form.installments || []);
-    onSave({ ...form, installments });
+    onSave({ ...form, installments: buildSchedule() });
   };
   return <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
     <div style={{ background: theme.surfaceAlt, borderRadius: theme.radiusSm, padding: "12px 14px", border: `1px solid ${theme.borderLight}` }}>
@@ -1500,42 +1520,48 @@ function InvoiceForm({ item, data, onSave, onCancel }) {
     <Textarea label="Notes" value={form.notes} onChange={e => set("notes", e.target.value)} placeholder="Payment terms, thank you note, etc." />
 
     {/* Payment Plan */}
-    {hasExistingInstallments
-      ? <div style={{ background: theme.surfaceAlt, borderRadius: theme.radiusSm, padding: "10px 14px", border: `1px solid ${theme.borderLight}`, fontSize: 12, color: theme.textSecondary }}>Payment plan active — mark installments paid from the invoice detail view.</div>
-      : <div style={{ background: theme.surfaceAlt, borderRadius: theme.radiusSm, padding: "12px 14px", border: `1px solid ${theme.borderLight}` }}>
-          <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", marginBottom: form.paymentPlan ? 14 : 0 }}>
-            <input type="checkbox" checked={form.paymentPlan} onChange={e => set("paymentPlan", e.target.checked)} style={{ accentColor: theme.accent, width: 14, height: 14 }} />
-            <span style={{ fontSize: 13, fontWeight: 600, color: theme.text }}>Set up payment plan</span>
-          </label>
-          {form.paymentPlan && <>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginBottom: 12 }}>
-              <div>
-                <label style={{ fontSize: 11, fontWeight: 600, color: theme.textSecondary, textTransform: "uppercase", letterSpacing: "0.05em", display: "block", marginBottom: 4 }}>Payments</label>
-                <select value={form.planPayments} onChange={e => set("planPayments", parseInt(e.target.value))} style={{ width: "100%", padding: "8px 10px", border: `1px solid ${theme.border}`, borderRadius: theme.radiusSm, fontSize: 13, fontFamily: "'DM Sans', sans-serif", background: theme.surface }}>
-                  {Array.from({ length: 17 }, (_, i) => i + 2).map(n => <option key={n} value={n}>{n} payments</option>)}
-                </select>
-              </div>
-              <div>
-                <label style={{ fontSize: 11, fontWeight: 600, color: theme.textSecondary, textTransform: "uppercase", letterSpacing: "0.05em", display: "block", marginBottom: 4 }}>Interval</label>
-                <select value={form.planInterval} onChange={e => set("planInterval", e.target.value)} style={{ width: "100%", padding: "8px 10px", border: `1px solid ${theme.border}`, borderRadius: theme.radiusSm, fontSize: 13, fontFamily: "'DM Sans', sans-serif", background: theme.surface }}>
-                  <option value="monthly">Monthly</option>
-                  <option value="biweekly">Bi-weekly</option>
-                  <option value="weekly">Weekly</option>
-                </select>
-              </div>
-              <Input label="First Payment Date" type="date" value={form.planStartDate} onChange={e => set("planStartDate", e.target.value)} />
-            </div>
-            {previewInstallments.length > 0 && <div>
-              <div style={{ fontSize: 11, fontWeight: 600, color: theme.textMuted, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 8 }}>Schedule Preview</div>
-              {previewInstallments.map((inst, i) => <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: `1px solid ${theme.borderLight}`, fontSize: 13 }}>
-                <span style={{ color: theme.textSecondary }}>Payment {i + 1} · {fmtDate(inst.dueDate)}</span>
-                <span style={{ fontWeight: 600 }}>{fmt(inst.amount)}</span>
-              </div>)}
-            </div>}
-            {form.paymentPlan && !form.planStartDate && <div style={{ fontSize: 12, color: theme.textMuted }}>Set a first payment date to preview the schedule.</div>}
-          </>}
+    <div style={{ background: theme.surfaceAlt, borderRadius: theme.radiusSm, padding: "12px 14px", border: `1px solid ${theme.borderLight}` }}>
+      <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", marginBottom: form.paymentPlan ? 14 : 0 }}>
+        <input type="checkbox" checked={form.paymentPlan} onChange={e => set("paymentPlan", e.target.checked)} style={{ accentColor: theme.accent, width: 14, height: 14 }} />
+        <span style={{ fontSize: 13, fontWeight: 600, color: theme.text }}>{hasExistingInstallments ? "Payment plan" : "Set up payment plan"}</span>
+        {hasExistingInstallments && !form.paymentPlan && <span style={{ fontSize: 12, color: theme.danger, fontWeight: 500 }}>— will be removed on save</span>}
+      </label>
+      {form.paymentPlan && <>
+        <div className="r-g" style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginBottom: 12 }}>
+          <div>
+            <label style={{ fontSize: 11, fontWeight: 600, color: theme.textSecondary, textTransform: "uppercase", letterSpacing: "0.05em", display: "block", marginBottom: 4 }}>Payments</label>
+            <select value={form.planPayments} onChange={e => set("planPayments", parseInt(e.target.value))} style={{ width: "100%", padding: "8px 10px", border: `1px solid ${theme.border}`, borderRadius: theme.radiusSm, fontSize: 13, fontFamily: "'DM Sans', sans-serif", background: theme.surface }}>
+              {Array.from({ length: 17 }, (_, i) => i + 2).map(n => <option key={n} value={n}>{n} payments</option>)}
+            </select>
+          </div>
+          <div>
+            <label style={{ fontSize: 11, fontWeight: 600, color: theme.textSecondary, textTransform: "uppercase", letterSpacing: "0.05em", display: "block", marginBottom: 4 }}>Interval</label>
+            <select value={form.planInterval} onChange={e => set("planInterval", e.target.value)} style={{ width: "100%", padding: "8px 10px", border: `1px solid ${theme.border}`, borderRadius: theme.radiusSm, fontSize: 13, fontFamily: "'DM Sans', sans-serif", background: theme.surface }}>
+              <option value="monthly">Monthly</option>
+              <option value="biweekly">Bi-weekly</option>
+              <option value="weekly">Weekly</option>
+            </select>
+          </div>
+          <Input label="First Payment Date" type="date" value={form.planStartDate} onChange={e => set("planStartDate", e.target.value)} />
         </div>
-    }
+        {paidInstallments.length > 0 && planChanged && <div style={{ fontSize: 12, color: theme.warning, marginBottom: 10 }}>{paidInstallments.length} payment{paidInstallments.length === 1 ? "" : "s"} already recorded ({fmt(paidTotal)}) — those are kept, and {fmt(Math.max(0, total - paidTotal))} is rescheduled.</div>}
+        {previewInstallments.length > 0 && <div>
+          <div style={{ fontSize: 11, fontWeight: 600, color: theme.textMuted, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 8 }}>{hasExistingInstallments ? "New schedule (replaces the current one)" : "Schedule Preview"}</div>
+          {previewInstallments.map((inst, i) => <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: `1px solid ${theme.borderLight}`, fontSize: 12 }}>
+            <span style={{ color: theme.textSecondary }}>Payment {paidInstallments.length + i + 1} · {fmtDate(inst.dueDate)}</span>
+            <span style={{ fontWeight: 600 }}>{fmt(inst.amount)}</span>
+          </div>)}
+        </div>}
+        {hasExistingInstallments && !planChanged && <div style={{ display: "grid", gap: 2 }}>
+          <div style={{ fontSize: 11, fontWeight: 600, color: theme.textMuted, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 6 }}>Current schedule — change any field above to rebuild it</div>
+          {(item.installments || []).map((inst, i) => <div key={inst.id} style={{ display: "flex", justifyContent: "space-between", padding: "5px 0", borderBottom: `1px solid ${theme.borderLight}`, fontSize: 12 }}>
+            <span style={{ color: theme.textSecondary }}>Payment {i + 1} · {fmtDate(inst.dueDate)}{inst.status === "paid" ? " · paid" : ""}</span>
+            <span style={{ fontWeight: 600, color: inst.status === "paid" ? theme.success : theme.text }}>{fmt(inst.amount)}</span>
+          </div>)}
+        </div>}
+        {!form.planStartDate && <div style={{ fontSize: 12, color: theme.textMuted }}>Set a first payment date to preview the schedule.</div>}
+      </>}
+    </div>
 
     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 0", borderTop: `1px solid ${theme.borderLight}` }}><div style={{ fontFamily: "'Fraunces', serif", fontSize: 18, fontWeight: 700 }}>Total: {fmt(total)}</div><div style={{ display: "flex", gap: 8 }}><Btn variant="secondary" onClick={onCancel}>Cancel</Btn><Btn onClick={handleSave}>Save Invoice</Btn></div></div>
   </div>;
