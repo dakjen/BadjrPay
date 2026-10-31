@@ -71,6 +71,23 @@ const BkIcons = {
   search: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>,
 };
 
+// Bank CSVs use M/D/YY, MM/DD/YYYY, YYYY-MM-DD… normalize to ISO so dates sort and compare correctly
+function csvToISO(v) {
+  if (!v) return "";
+  const str = String(v).trim();
+  if (/^\d{4}-\d{1,2}-\d{1,2}/.test(str)) {
+    const [y, m, d] = str.slice(0, 10).split("-");
+    return `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+  }
+  const m = str.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})$/); // US month-first
+  if (m) {
+    const yr = m[3].length === 2 ? String(2000 + Number(m[3])) : m[3];
+    return `${yr}-${String(m[1]).padStart(2, "0")}-${String(m[2]).padStart(2, "0")}`;
+  }
+  const parsed = new Date(str);
+  return isNaN(parsed.getTime()) ? "" : parsed.toISOString().slice(0, 10);
+}
+
 // A bank row's identity: same date + amount + description + account = same transaction.
 // Re-importing a file therefore overwrites rather than duplicating.
 function fingerprintId(r, accountId) {
@@ -819,7 +836,7 @@ function CSVImportView({ data, act, showToast, reload }) {
   const getMappedRows = () => {
     if (!csv) return [];
     return csv.rows.map(row => {
-      const date = mapping.date !== undefined ? row[parseInt(mapping.date)] || "" : "";
+      const date = mapping.date !== undefined ? csvToISO(row[parseInt(mapping.date)]) : "";
       const desc = mapping.description !== undefined ? row[parseInt(mapping.description)] || "" : "";
       const ref = mapping.reference !== undefined ? row[parseInt(mapping.reference)] || "" : "";
       let amount = 0;
@@ -882,7 +899,8 @@ function CSVImportView({ data, act, showToast, reload }) {
     }
   };
 
-  const preview = getMappedRows().slice(0, 20);
+  const importSet = new Set(rowsToImport);
+  const preview = allRows.slice(0, 40);
 
   return <div>
     {step === 1 && <div style={{ textAlign: "center", padding: "40px 20px" }}>
@@ -937,7 +955,7 @@ function CSVImportView({ data, act, showToast, reload }) {
     </div>}
 
     {step === 3 && <div>
-      <h3 style={{ fontFamily: "'Fraunces', serif", fontSize: 16, fontWeight: 600, margin: "0 0 4px" }}>Preview ({rowsToImport.length} of {getMappedRows().length} rows)</h3>
+      <h3 style={{ fontFamily: "'Fraunces', serif", fontSize: 16, fontWeight: 600, margin: "0 0 4px" }}>Preview — importing {rowsToImport.length} of {allRows.length} rows</h3>
       {cutoff && <div style={{ background: theme.blueLight, color: theme.blue, borderRadius: theme.radiusSm, padding: "10px 14px", fontSize: 13, margin: "0 0 14px" }}>
         <div>{cutoffSource === "upload"
           ? <>Last upload{lastImport.accountName ? ` for ${lastImport.accountName}` : ""}: <b>{lastImport.rowCount}</b> rows covering {fmtDate(lastImport.firstDate)} – <b>{fmtDate(lastImport.lastDate)}</b>, imported {fmtDate(lastImport.importedAt)}.</>
@@ -960,13 +978,16 @@ function CSVImportView({ data, act, showToast, reload }) {
             </tr>
           </thead>
           <tbody>
-            {preview.map((r, i) => <tr key={i} style={{ borderBottom: `1px solid ${theme.borderLight}` }}>
-              <td style={tdStyle}>{r.date}</td>
-              <td style={tdStyle}>{r.description}</td>
-              <td style={tdStyle}>{r.reference}</td>
-              <td style={{ ...tdStyle, textAlign: "right", color: r.type === "income" ? theme.success : theme.danger }}>{r.type === "income" ? "+" : "-"}{fmt(Math.abs(r.amount))}</td>
-              <td style={tdStyle}>{r.type}</td>
-            </tr>)}
+            {preview.map((r, i) => {
+              const skip = !importSet.has(r);
+              return <tr key={i} style={{ borderBottom: `1px solid ${theme.borderLight}`, opacity: skip ? 0.45 : 1 }}>
+                <td style={tdStyle}>{fmtDate(r.date)}</td>
+                <td style={tdStyle}>{r.description}{skip && <span style={{ marginLeft: 8, fontSize: 10, fontWeight: 700, letterSpacing: "0.04em", color: theme.textMuted, background: theme.surfaceAlt, padding: "2px 6px", borderRadius: 10 }}>ALREADY IMPORTED</span>}</td>
+                <td style={tdStyle}>{r.reference}</td>
+                <td style={{ ...tdStyle, textAlign: "right", color: skip ? theme.textMuted : r.type === "income" ? theme.success : theme.danger, textDecoration: skip ? "line-through" : "none" }}>{r.type === "income" ? "+" : "-"}{fmt(Math.abs(r.amount))}</td>
+                <td style={tdStyle}>{r.type}</td>
+              </tr>;
+            })}
           </tbody>
         </table></div>
         {getMappedRows().length > 20 && <div style={{ fontSize: 12, color: theme.textMuted, marginTop: 8 }}>Showing first 20 of {getMappedRows().length} rows</div>}
