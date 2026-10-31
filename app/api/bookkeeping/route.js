@@ -9,7 +9,7 @@ import {
   upsertContractor, deleteContractor,
   upsertContractorPayment, deleteContractorPayment,
   upsertAccount, deleteAccount,
-  upsertBkCategory, deleteBkCategory, recordImportBatch, deleteImportBatch,
+  upsertBkCategory, deleteBkCategory, recordImportBatch, deleteImportBatch, countExistingMatches,
 } from "@/lib/bookkeeping-db";
 import { reconcileOnlinePayments } from "@/lib/billing-db";
 import { NextResponse } from "next/server";
@@ -72,10 +72,13 @@ export async function POST(req) {
         await upsertTransaction(data);
         await reconcileOnlinePayments(data.invoiceId || null);
         break;
-      case "bulk_import_transactions":
-        await bulkImportTransactions(data.transactions);
-        if (data.batch) await recordImportBatch(data.batch);
-        return NextResponse.json({ ok: true, count: data.transactions.length });
+      case "bulk_import_transactions": {
+        const res = await bulkImportTransactions(data.transactions);
+        if (data.batch) await recordImportBatch({ ...data.batch, rowCount: res.inserted, skippedCount: (data.batch.skippedCount || 0) + res.skipped });
+        return NextResponse.json({ ok: true, ...res });
+      }
+      case "count_existing_matches":
+        return NextResponse.json({ ok: true, existing: await countExistingMatches(data.rows || []) });
       case "delete_transaction":
         await deleteTransaction(data.id);
         await reconcileOnlinePayments();

@@ -776,10 +776,13 @@ function CSVImportView({ data, act, showToast, reload }) {
   const [onlyNew, setOnlyNew] = useState(true);
   const fileRef = useRef(null);
 
-  // Where the previous upload for this account left off
+  // Where to resume: the last recorded upload for this account, or failing that the
+  // newest transaction already in the ledger (covers data imported before upload history existed)
   const batches = data.importBatches || [];
   const lastImport = batches.filter(b => !accountId || b.accountId === accountId)[0] || null;
-  const cutoff = lastImport?.lastDate || null;
+  const ledgerEnd = (data.ledgerLastDate || {})[accountId || ""] || null;
+  const cutoff = lastImport?.lastDate || ledgerEnd || null;
+  const cutoffSource = lastImport?.lastDate ? "upload" : ledgerEnd ? "ledger" : null;
   const applyCutoff = onlyNew && !!cutoff;
 
   const handleFile = (e) => {
@@ -935,14 +938,16 @@ function CSVImportView({ data, act, showToast, reload }) {
 
     {step === 3 && <div>
       <h3 style={{ fontFamily: "'Fraunces', serif", fontSize: 16, fontWeight: 600, margin: "0 0 4px" }}>Preview ({rowsToImport.length} of {getMappedRows().length} rows)</h3>
-      {lastImport && <div style={{ background: theme.blueLight, color: theme.blue, borderRadius: theme.radiusSm, padding: "10px 14px", fontSize: 13, margin: "0 0 14px" }}>
-        <div>Last upload{lastImport.accountName ? ` for ${lastImport.accountName}` : ""}: <b>{lastImport.rowCount}</b> rows covering {fmtDate(lastImport.firstDate)} – <b>{fmtDate(lastImport.lastDate)}</b>, imported {fmtDate(lastImport.importedAt)}.</div>
+      {cutoff && <div style={{ background: theme.blueLight, color: theme.blue, borderRadius: theme.radiusSm, padding: "10px 14px", fontSize: 13, margin: "0 0 14px" }}>
+        <div>{cutoffSource === "upload"
+          ? <>Last upload{lastImport.accountName ? ` for ${lastImport.accountName}` : ""}: <b>{lastImport.rowCount}</b> rows covering {fmtDate(lastImport.firstDate)} – <b>{fmtDate(lastImport.lastDate)}</b>, imported {fmtDate(lastImport.importedAt)}.</>
+          : <>Your ledger already has transactions through <b>{fmtDate(ledgerEnd)}</b>.</>}</div>
         <label style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8, cursor: "pointer", color: theme.text }}>
           <input type="checkbox" checked={onlyNew} onChange={e => setOnlyNew(e.target.checked)} style={{ accentColor: theme.accent }} />
           <span>Only import transactions after {fmtDate(cutoff)}{skippedByDate > 0 ? ` — skips ${skippedByDate} older row${skippedByDate === 1 ? "" : "s"}` : ""}</span>
         </label>
       </div>}
-      {!lastImport && <div style={{ fontSize: 12, color: theme.textMuted, margin: "0 0 14px" }}>First upload for this account. Future uploads will offer to start from where this one ends.</div>}
+      {!cutoff && <div style={{ fontSize: 12, color: theme.textMuted, margin: "0 0 14px" }}>Nothing in the ledger yet for this account — everything here will be imported, and future uploads will start from where this one ends.</div>}
       <div style={{ overflowX: "auto", marginBottom: 16 }}>
         <div className="r-tbl"><table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
           <thead>
