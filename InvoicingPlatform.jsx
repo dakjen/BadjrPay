@@ -52,6 +52,18 @@ const SIDEBAR_BOTTOM = ["users", "settings"]; // icon-only, pinned at the bottom
 const MOBILE_PRIMARY = ["dashboard", "invoices", "billing", "bookkeeping"]; // rest live behind "More"
 const RECURRING = { month: { label: "Monthly", months: 1 }, quarter: { label: "Quarterly", months: 3 }, year: { label: "Annually", months: 12 } };
 const addMonths = (iso, n) => { if (!iso) return ""; const [y, m, d] = iso.split("-").map(Number); const dt = new Date(y, m - 1 + n, d); return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`; };
+// A plan is trustworthy only if it adds up to the invoice and doesn't predate it.
+// This is the same test the reminder job applies, so the screen and the emails always agree.
+function planProblem(inv) {
+  const sched = inv.installments || [];
+  if (sched.length === 0) return null;
+  const total = sched.reduce((t, x) => t + (x.amount || 0), 0);
+  const first = sched.map(x => x.dueDate).filter(Boolean).sort()[0];
+  if (Math.abs(total - (inv.total || 0)) > 0.01) return `the ${sched.length} scheduled payments come to ${fmt(total)}, but this invoice is ${fmt(inv.total || 0)}`;
+  if (inv.createdAt && first && first < inv.createdAt) return `the plan starts ${fmtDate(first)}, before this invoice existed (${fmtDate(inv.createdAt)})`;
+  return null;
+}
+
 const recurringMonthly = (inv) => inv.recurring && RECURRING[inv.recurring] ? (inv.total || 0) / RECURRING[inv.recurring].months : 0;
 const fmt = (n) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(n);
 const fmtDate = (d) => { if (!d) return "—"; try { const s = String(d).trim(); const iso = /^\d{4}-\d{2}-\d{2}/.test(s) ? s.slice(0, 10) : new Date(s).toISOString().split("T")[0]; const [y, m, day] = iso.split("-"); return new Date(Number(y), Number(m) - 1, Number(day)).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }); } catch { return "—"; } };
@@ -538,6 +550,12 @@ export default function InvoicingPlatform() {
   const deleteInvoice = (id) => updateNow("invoices", data.invoices.filter(i => i.id !== id));
 
   // Recurring invoice came around again: copy it into a fresh draft and move the renewal date forward
+  // Drop a schedule outright, leaving the invoice itself untouched
+  const clearPlan = (id) => {
+    updateNow("invoices", data.invoices.map(i => i.id === id ? { ...i, installments: [] } : i));
+    showToast("Payment plan removed — the invoice is unchanged");
+  };
+
   const createRenewal = (src) => {
     const months = RECURRING[src.recurring]?.months || 12;
     const issue = src.recurringNext || today();
@@ -638,7 +656,7 @@ export default function InvoicingPlatform() {
         {page === "dashboard" && <DashboardView {...{ data, totalRevenue, outstanding, overdueCount, draftCount, setPage, setModal, updateInvoiceStatus, handleDownloadPDF, handleSendEmail }} />}
         {page === "invoices" && !viewInvoice && <InvoicesView {...{ data, setModal, setEditItem, setViewInvoice: openInvoice, deleteInvoice, updateInvoiceStatus, handleCopyPayLink, handleDownloadPDF, handleSendEmail, handleSendOverdue, createRenewal }} />}
         {page === "invoices" && viewInvoice && !data.invoices.find(i => i.id === viewInvoice.id) && (data.invoices.length ? <Empty icon={Icons.invoice} message="That invoice no longer exists" action={<Btn size="sm" variant="secondary" onClick={() => openInvoice(null)}>Back to invoices</Btn>} /> : <div style={{ color: theme.textMuted, padding: 40, textAlign: "center" }}>Loading…</div>)}
-        {page === "invoices" && viewInvoice && data.invoices.find(i => i.id === viewInvoice.id) && <InvoiceDetailView invoice={data.invoices.find(i => i.id === viewInvoice.id)} data={data} onBack={() => openInvoice(null)} updateStatus={updateInvoiceStatus} markPartial={markPartialPayment} markInstallmentPaid={markInstallmentPaid} handleCopyPayLink={handleCopyPayLink} handleDownloadPDF={handleDownloadPDF} handleSendEmail={handleSendEmail} handleSendOverdue={handleSendOverdue} showToast={showToast} setAttachments={(id, list) => setData(d => ({ ...d, invoices: d.invoices.map(i => i.id === id ? { ...i, attachments: list } : i) }))} canEdit={session?.user?.role !== "accountant"} />}
+        {page === "invoices" && viewInvoice && data.invoices.find(i => i.id === viewInvoice.id) && <InvoiceDetailView invoice={data.invoices.find(i => i.id === viewInvoice.id)} data={data} onBack={() => openInvoice(null)} updateStatus={updateInvoiceStatus} markPartial={markPartialPayment} markInstallmentPaid={markInstallmentPaid} clearPlan={clearPlan} setEditItem={setEditItem} setModal={setModal} handleCopyPayLink={handleCopyPayLink} handleDownloadPDF={handleDownloadPDF} handleSendEmail={handleSendEmail} handleSendOverdue={handleSendOverdue} showToast={showToast} setAttachments={(id, list) => setData(d => ({ ...d, invoices: d.invoices.map(i => i.id === id ? { ...i, attachments: list } : i) }))} canEdit={session?.user?.role !== "accountant"} />}
         {page === "clients" && <ClientsView {...{ data, setModal, setEditItem, deleteClient }} />}
         {page === "projects" && <ProjectsView {...{ data, setModal, setEditItem, deleteProject, saveProject }} />}
         {page === "services" && <ServicesView {...{ data, setModal, setEditItem, deleteService }} />}
@@ -763,7 +781,7 @@ function InvoicesView({ data, setModal, setEditItem, setViewInvoice, deleteInvoi
             const balance = (inv.total || 0) - (inv.amountPaid || 0);
             return <tr key={inv.id} style={{ borderBottom: `1px solid ${theme.borderLight}`, cursor: "pointer" }} onClick={() => setViewInvoice(inv)}>
               <td style={{ padding: "10px 14px" }}>
-                <div style={{ fontWeight: 600 }}>{inv.number}{inv.recurring && RECURRING[inv.recurring] && <span title={`Recurring ${RECURRING[inv.recurring].label.toLowerCase()}`} style={{ marginLeft: 6, fontSize: 10, fontWeight: 700, color: theme.accent, background: theme.accentLight, padding: "2px 6px", borderRadius: 10, verticalAlign: "middle" }}>↻ {RECURRING[inv.recurring].label}</span>}</div>
+                <div style={{ fontWeight: 600 }}>{planProblem(inv) && <span title={`Payment plan needs attention: ${planProblem(inv)}`} style={{ marginRight: 6, color: theme.warning }}>⚠</span>}{inv.number}{inv.recurring && RECURRING[inv.recurring] && <span title={`Recurring ${RECURRING[inv.recurring].label.toLowerCase()}`} style={{ marginLeft: 6, fontSize: 10, fontWeight: 700, color: theme.accent, background: theme.accentLight, padding: "2px 6px", borderRadius: 10, verticalAlign: "middle" }}>↻ {RECURRING[inv.recurring].label}</span>}</div>
                 {inv.notes && <div style={{ fontSize: 11, color: theme.textMuted, marginTop: 2, maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{inv.notes}</div>}
               </td>
               <td style={{ padding: "10px 14px" }}>
@@ -832,7 +850,7 @@ function AttachmentsPanel({ invoice, onChange, showToast, canEdit }) {
   </div>;
 }
 
-function InvoiceDetailView({ invoice: inv, data, onBack, updateStatus, markPartial, markInstallmentPaid, handleCopyPayLink, handleDownloadPDF, handleSendEmail, handleSendOverdue, showToast, setAttachments, canEdit }) {
+function InvoiceDetailView({ invoice: inv, data, onBack, updateStatus, markPartial, markInstallmentPaid, clearPlan, setEditItem, setModal, handleCopyPayLink, handleDownloadPDF, handleSendEmail, handleSendOverdue, showToast, setAttachments, canEdit }) {
   const [payAmount, setPayAmount] = useState("");
   const [sending, setSending] = useState(false);
   const [sendingReminder, setSendingReminder] = useState(false);
@@ -903,6 +921,14 @@ function InvoiceDetailView({ invoice: inv, data, onBack, updateStatus, markParti
       </div>
 
       {inv.notes && <div style={{ padding: "14px 16px", background: theme.surfaceAlt, borderRadius: theme.radiusSm, fontSize: 13, color: theme.textSecondary, marginBottom: 20 }}><span style={{ fontWeight: 600, fontSize: 11, textTransform: "uppercase", letterSpacing: "0.05em", display: "block", marginBottom: 4 }}>Notes</span>{inv.notes}</div>}
+
+      {planProblem(inv) && <div style={{ background: theme.warningLight, color: theme.warning, borderRadius: theme.radiusSm, padding: "12px 14px", fontSize: 13, marginBottom: 16, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+        <span><b>This payment plan doesn't add up</b> — {planProblem(inv)}. No reminders are being sent for it.</span>
+        {canEdit && <div style={{ display: "flex", gap: 6 }}>
+          <Btn size="sm" variant="secondary" onClick={() => { setEditItem(inv); setModal("invoice"); }}>Edit plan</Btn>
+          <Btn size="sm" variant="danger" onClick={() => { if (confirm(`Remove the payment plan from ${inv.number}?\n\nThe invoice keeps its ${fmt(inv.total || 0)} total and its due date — only the ${(inv.installments || []).length}-payment schedule goes away.`)) clearPlan(inv.id); }}>Remove plan</Btn>
+        </div>}
+      </div>}
 
       <AttachmentsPanel invoice={inv} onChange={(list) => setAttachments(inv.id, list)} showToast={showToast} canEdit={canEdit} />
 
