@@ -1499,17 +1499,18 @@ function InvoiceForm({ item, data, onSave, onCancel }) {
     if (cl) setForm(f => ({ ...f, clientId: cl.id, clientName: cl.name, clientEmail: cl.email, clientPhone: cl.phone, clientAddress: cl.address }));
     else setForm(f => ({ ...f, clientId: "", clientName: "", clientEmail: "", clientPhone: "", clientAddress: "" }));
   };
-  // Rebuild the schedule when the plan is new or its settings changed; already-paid payments are kept
-  const planChanged = form.planStartDate !== existingPlan.planStartDate || form.planPayments !== existingPlan.planPayments || form.planInterval !== existingPlan.planInterval;
+  // A payment plan always starts on the invoice's due date, so there's nothing to keep in sync by hand
+  const planStart = form.dueDate || "";
+  const planChanged = planStart !== existingPlan.planStartDate || form.planPayments !== existingPlan.planPayments || form.planInterval !== existingPlan.planInterval;
   const paidTotal = paidInstallments.reduce((t, i) => t + (i.amount || 0), 0);
   const buildSchedule = () => {
     if (!form.paymentPlan) return [];
     if (hasExistingInstallments && !planChanged) return form.installments || item.installments || [];
-    const spread = generateInstallments(Math.max(0, total - paidTotal), form.planPayments, form.planInterval, form.planStartDate);
+    const spread = generateInstallments(Math.max(0, total - paidTotal), form.planPayments, form.planInterval, planStart);
     return [...paidInstallments, ...spread];
   };
-  const previewInstallments = form.paymentPlan && form.planStartDate && total > 0 && (!hasExistingInstallments || planChanged)
-    ? generateInstallments(Math.max(0, total - paidTotal), form.planPayments, form.planInterval, form.planStartDate)
+  const previewInstallments = form.paymentPlan && planStart && total > 0 && (!hasExistingInstallments || planChanged)
+    ? generateInstallments(Math.max(0, total - paidTotal), form.planPayments, form.planInterval, planStart)
     : [];
   const handleSave = () => {
     if (!form.clientId) return;
@@ -1568,8 +1569,14 @@ function InvoiceForm({ item, data, onSave, onCancel }) {
               <option value="weekly">Weekly</option>
             </select>
           </div>
-          <Input label="First Payment Date" type="date" value={form.planStartDate} onChange={e => set("planStartDate", e.target.value)} />
+          <div>
+            <label style={{ fontSize: 11, fontWeight: 600, color: theme.textSecondary, textTransform: "uppercase", letterSpacing: "0.05em", display: "block", marginBottom: 4 }}>First Payment</label>
+            <div style={{ padding: "8px 10px", border: `1px dashed ${theme.border}`, borderRadius: theme.radiusSm, fontSize: 13, color: planStart ? theme.text : theme.textMuted, background: theme.surface }}>
+              {planStart ? fmtDate(planStart) : "set a due date above"}
+            </div>
+          </div>
         </div>
+        <div style={{ fontSize: 12, color: theme.textMuted, marginBottom: 12 }}>Payments start on the invoice's due date and repeat {form.planInterval}. Change the due date to move the whole schedule.</div>
         {paidInstallments.length > 0 && planChanged && <div style={{ fontSize: 12, color: theme.warning, marginBottom: 10 }}>{paidInstallments.length} payment{paidInstallments.length === 1 ? "" : "s"} already recorded ({fmt(paidTotal)}) — those are kept, and {fmt(Math.max(0, total - paidTotal))} is rescheduled.</div>}
         {previewInstallments.length > 0 && <div>
           <div style={{ fontSize: 11, fontWeight: 600, color: theme.textMuted, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 8 }}>{hasExistingInstallments ? "New schedule (replaces the current one)" : "Schedule Preview"}</div>
@@ -1585,7 +1592,7 @@ function InvoiceForm({ item, data, onSave, onCancel }) {
             <span style={{ fontWeight: 600, color: inst.status === "paid" ? theme.success : theme.text }}>{fmt(inst.amount)}</span>
           </div>)}
         </div>}
-        {!form.planStartDate && <div style={{ fontSize: 12, color: theme.textMuted }}>Set a first payment date to preview the schedule.</div>}
+        {!planStart && <div style={{ fontSize: 12, color: theme.textMuted }}>Set a due date above to build the schedule.</div>}
       </>}
     </div>
 
